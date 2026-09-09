@@ -24,6 +24,12 @@ pcall(function()
 end)
 if not WS_Connect then return end
 
+pcall(function()
+    local httpUrl = string.gsub(WS_URL, "wss://", "https://")
+    game:HttpGet(httpUrl)
+end)
+task.wait(0.5)
+
 local mySessionId = tick() .. "_" .. math.random(1000, 9999)
 _G.SacredVictimSessionId = mySessionId
 
