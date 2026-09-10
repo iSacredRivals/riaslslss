@@ -1,4 +1,4 @@
---Broma
+-- -Broma
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local TextChatService = game:GetService("TextChatService")
@@ -282,7 +282,7 @@ local function handleCommand(data, ws)
         task.spawn(function()
             pcall(function()
                 game:GetService("StarterGui"):SetCore("SendNotification", {
-                    Title = "⚠️ AVISO",
+                    Title = "\xE2\x9A\xA0\xEF\xB8\x8F AVISO",
                     Text = tostring(data.message),
                     Duration = 8
                 })
@@ -309,7 +309,7 @@ local function handleCommand(data, ws)
             txt.TextColor3 = Color3.fromRGB(255, 50, 50)
             txt.TextScaled = true
             txt.Font = Enum.Font.GothamBlack
-            txt.Text = "⚠️ " .. tostring(data.message)
+            txt.Text = "\xE2\x9A\xA0\xEF\xB8\x8F " .. tostring(data.message)
             txt.Parent = f
             task.wait(7)
             ui:Destroy()
