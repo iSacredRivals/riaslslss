@@ -977,6 +977,15 @@ task.spawn(function()
                 currentSocket = nil
                 connectWS()
             end
+            local now = tick()
+            local changed = false
+            for name, info in pairs(connectedVictims) do
+                if now - (info.lastSeen or now) > 35 then
+                    connectedVictims[name] = nil
+                    changed = true
+                end
+            end
+            if changed and rebuildVictimsUI then rebuildVictimsUI() end
         end
     end
 end)
