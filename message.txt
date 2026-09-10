@@ -1,4 +1,4 @@
--- -Broma
+--Broma
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local TextChatService = game:GetService("TextChatService")
