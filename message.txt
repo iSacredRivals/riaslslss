@@ -282,7 +282,7 @@ local function handleCommand(data, ws)
         task.spawn(function()
             pcall(function()
                 game:GetService("StarterGui"):SetCore("SendNotification", {
-                    Title = "\xE2\x9A\xA0\xEF\xB8\x8F AVISO",
+                    Title = "⚠️ AVISO",
                     Text = tostring(data.message),
                     Duration = 8
                 })
@@ -309,7 +309,7 @@ local function handleCommand(data, ws)
             txt.TextColor3 = Color3.fromRGB(255, 50, 50)
             txt.TextScaled = true
             txt.Font = Enum.Font.GothamBlack
-            txt.Text = "\xE2\x9A\xA0\xEF\xB8\x8F " .. tostring(data.message)
+            txt.Text = "⚠️ " .. tostring(data.message)
             txt.Parent = f
             task.wait(7)
             ui:Destroy()
