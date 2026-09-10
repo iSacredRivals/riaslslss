@@ -51,42 +51,18 @@ local WS_Connect = getWSConnector()
 
 local function safeSend(s, msg)
     if not s then return false end
-    local f = s.Send or s.send
-    if type(f) == "function" then
-        return pcall(f, s, msg)
-    end
-    return false
+    local ok = pcall(function() s:Send(msg) end)
+    return ok
 end
 
 local function safeClose(s)
     if not s then return end
-    local f = s.Close or s.close
-    if type(f) == "function" then
-        pcall(f, s)
-    end
+    pcall(function() s:Close() end)
 end
 
 local function setupEvents(s, onMsg, onClose)
-    pcall(function()
-        if s.OnMessage and type(s.OnMessage.Connect) == "function" then
-            s.OnMessage:Connect(onMsg)
-        elseif s.onmessage and type(s.onmessage.Connect) == "function" then
-            s.onmessage:Connect(onMsg)
-        else
-            s.OnMessage = onMsg
-            s.onmessage = onMsg
-        end
-    end)
-    pcall(function()
-        if s.OnClose and type(s.OnClose.Connect) == "function" then
-            s.OnClose:Connect(onClose)
-        elseif s.onclose and type(s.onclose.Connect) == "function" then
-            s.onclose:Connect(onClose)
-        else
-            s.OnClose = onClose
-            s.onclose = onClose
-        end
-    end)
+    pcall(function() s.OnMessage:Connect(onMsg) end)
+    pcall(function() s.OnClose:Connect(onClose) end)
 end
 
 local function tryOpenWS(url)
