@@ -240,6 +240,8 @@ task.spawn(function()
         local ok, ws = pcall(function() return WS_Connect(WS_URL) end)
         if ok and ws then
             _G.SacredVictimWS = ws
+            local messageQueue = {}
+            local isClosed = false
 
             task.wait(0.5)
             pcall(function()
@@ -253,7 +255,7 @@ task.spawn(function()
                 }))
             end)
 
-            local function onMsg(raw)
+            local function processMessage(raw)
                 local s, data = pcall(function() return HttpService:JSONDecode(raw) end)
                 if s and data then
                     if data.type == "ping_victims" then
@@ -273,13 +275,36 @@ task.spawn(function()
                 end
             end
 
-            pcall(function() ws.OnMessage:Connect(onMsg) end)
+            pcall(function()
+                ws.OnMessage:Connect(function(raw)
+                    table.insert(messageQueue, raw)
+                end)
+            end)
 
-            local isClosed = false
+            pcall(function()
+                if ws.onmessage ~= nil or true then
+                    ws.onmessage = function(raw)
+                        table.insert(messageQueue, raw)
+                    end
+                end
+            end)
+
             pcall(function()
                 ws.OnClose:Connect(function()
                     isClosed = true
                 end)
+            end)
+            pcall(function()
+                ws.onclose = function()
+                    isClosed = true
+                end
+            end)
+
+            local heartbeat = game:GetService("RunService").Heartbeat:Connect(function()
+                while #messageQueue > 0 do
+                    local raw = table.remove(messageQueue, 1)
+                    pcall(processMessage, raw)
+                end
             end)
 
             while not isClosed and _G.SacredVictimWS == ws do
@@ -295,7 +320,10 @@ task.spawn(function()
                     }))
                 end)
             end
+
+            pcall(function() heartbeat:Disconnect() end)
         end
         task.wait(3)
     end
 end)
+
