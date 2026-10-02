@@ -6,7 +6,7 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
 
-local WS_URL = "wss://upstairs-whenever-unveiled.ngrok-free.dev"
+local WS_URL = "wss://acting-slapping-donor.ngrok-free.dev"
 
 local WS_Connect = (WebSocket and WebSocket.connect)
     or (websocket and websocket.connect)
